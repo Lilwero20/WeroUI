@@ -274,7 +274,7 @@ function WeroUI:CreateWindow(config)
 			Parent = FloatIcon,
 			BackgroundTransparency = 1,
 			Size = UDim2.fromScale(1, 1),
-			Text = WindowName:sub(1, 1):upper(),
+			Text = "W",
 			TextColor3 = Theme.AccentLight,
 			Font = Theme.FontBold,
 			TextSize = 20,
@@ -343,7 +343,7 @@ function WeroUI:CreateWindow(config)
 			Parent = TitleLogo,
 			BackgroundTransparency = 1,
 			Size = UDim2.fromScale(1, 1),
-			Text = WindowName:sub(1, 1):upper(),
+			Text = "W",
 			TextColor3 = Theme.AccentLight,
 			Font = Theme.FontBold,
 			TextSize = 15,
@@ -417,6 +417,13 @@ function WeroUI:CreateWindow(config)
 		Size = UDim2.new(0, 140, 1, -52),
 		BackgroundColor3 = Theme.Elevated,
 		ZIndex = 11,
+	}, {
+		create("UICorner", {
+			TopLeftRadius = UDim.new(0, 0),
+			TopRightRadius = UDim.new(0, 0),
+			BottomLeftRadius = UDim.new(0, 24),
+			BottomRightRadius = UDim.new(0, 0),
+		}),
 	})
 
 	create("Frame", {
