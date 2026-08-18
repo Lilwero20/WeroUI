@@ -294,7 +294,7 @@ function WeroUI:CreateWindow(config)
 		ClipsDescendants = true,
 		ZIndex = 10,
 	}, {
-		corner(14),
+		corner(18),
 		stroke(Theme.Stroke, 1),
 	})
 
@@ -305,19 +305,19 @@ function WeroUI:CreateWindow(config)
 		Transparency = 0.85,
 	})
 
-	-- soft shadow
+	-- soft shadow (rounded corners to match the window)
 	create("ImageLabel", {
 		Name = "Shadow",
 		Parent = Main,
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, 60, 1, 60),
+		Size = UDim2.new(1, 40, 1, 40),
 		Image = "rbxassetid://1316045217",
 		ImageColor3 = Color3.new(0, 0, 0),
-		ImageTransparency = 0.55,
+		ImageTransparency = 0.62,
 		ScaleType = Enum.ScaleType.Slice,
-		SliceCenter = Rect.new(10, 10, 118, 118),
+		SliceCenter = Rect.new(24, 24, 104, 104),
 		ZIndex = 0,
 	})
 
@@ -330,12 +330,12 @@ function WeroUI:CreateWindow(config)
 		Size = UDim2.new(1, 0, 0, 52),
 		BackgroundColor3 = Theme.Elevated,
 		ZIndex = 11,
-	}, { corner(14) })
+	}, { corner(18) })
 
-	create("Frame", { -- mask bottom corners of topbar square
+	local TopBarMask = create("Frame", { -- mask bottom corners of topbar square
 		Parent = TopBar,
-		Size = UDim2.new(1, 0, 0, 14),
-		Position = UDim2.new(0, 0, 1, -14),
+		Size = UDim2.new(1, 0, 0, 18),
+		Position = UDim2.new(0, 0, 1, -18),
 		BackgroundColor3 = Theme.Elevated,
 		BorderSizePixel = 0,
 		ZIndex = 11,
@@ -371,7 +371,7 @@ function WeroUI:CreateWindow(config)
 		Parent = TopBar,
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(52, 8),
-		Size = UDim2.new(1, -110, 0, 20),
+		Size = UDim2.new(1, -160, 0, 20),
 		Text = WindowName,
 		TextColor3 = Theme.Text,
 		Font = Theme.FontBold,
@@ -384,7 +384,7 @@ function WeroUI:CreateWindow(config)
 		Parent = TopBar,
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(52, 27),
-		Size = UDim2.new(1, -110, 0, 16),
+		Size = UDim2.new(1, -160, 0, 16),
 		Text = Subtitle,
 		TextColor3 = Theme.SubText,
 		Font = Theme.Font,
@@ -392,6 +392,20 @@ function WeroUI:CreateWindow(config)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 12,
 	})
+
+	local MinBtn = create("TextButton", {
+		Parent = TopBar,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -48, 0.5, 0),
+		Size = UDim2.fromOffset(26, 26),
+		BackgroundColor3 = Theme.ElevatedLight,
+		Text = "–",
+		TextColor3 = Theme.SubText,
+		Font = Theme.FontBold,
+		TextSize = 18,
+		AutoButtonColor = false,
+		ZIndex = 12,
+	}, { corner(8) })
 
 	local CloseBtn = create("TextButton", {
 		Parent = TopBar,
@@ -528,12 +542,18 @@ function WeroUI:CreateWindow(config)
 	-- OPEN / CLOSE LOGIC
 	----------------------------------------------------------------
 	Main.Visible = true
+	Window.Minimized = false
+	local MINIMIZED_HEIGHT = 52
 	function Window:SetOpen(state)
 		Window.Open = state
 		if state then
 			Main.Visible = true
-			Main.Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, 0)
-			tween(Main, { Size = WindowSize }, 0.25)
+			if Window.Minimized then
+				Main.Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, MINIMIZED_HEIGHT)
+			else
+				Main.Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, 0)
+				tween(Main, { Size = WindowSize }, 0.25)
+			end
 		else
 			closeOpenDropdown()
 			local closing = tween(Main, { Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, 0) }, 0.2)
@@ -542,6 +562,21 @@ function WeroUI:CreateWindow(config)
 					Main.Visible = false
 				end
 			end)
+		end
+	end
+
+	function Window:SetMinimized(state)
+		if not Window.Open then return end
+		Window.Minimized = state
+		closeOpenDropdown()
+		TopBarMask.Visible = not state
+		MinBtn.Text = state and "+" or "–"
+		if state then
+			Main.Size = WindowSize
+			tween(Main, { Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, MINIMIZED_HEIGHT) }, 0.2)
+		else
+			Main.Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, MINIMIZED_HEIGHT)
+			tween(Main, { Size = WindowSize }, 0.2)
 		end
 	end
 
@@ -554,6 +589,12 @@ function WeroUI:CreateWindow(config)
 	end)
 	CloseBtn.MouseEnter:Connect(function() tween(CloseBtn, {BackgroundColor3 = Theme.Error}, 0.15) end)
 	CloseBtn.MouseLeave:Connect(function() tween(CloseBtn, {BackgroundColor3 = Theme.ElevatedLight}, 0.15) end)
+
+	MinBtn.MouseButton1Click:Connect(function()
+		Window:SetMinimized(not Window.Minimized)
+	end)
+	MinBtn.MouseEnter:Connect(function() tween(MinBtn, { BackgroundColor3 = Theme.Accent }, 0.15) end)
+	MinBtn.MouseLeave:Connect(function() tween(MinBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.15) end)
 
 	FloatIcon.MouseButton1Click:Connect(function()
 		Window:Toggle()
