@@ -262,7 +262,7 @@ function WeroUI:CreateWindow(config)
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Image = WindowIcon or "",
-			ImageColor3 = Theme.AccentLight,
+			ImageColor3 = Color3.new(1, 1, 1),
 			ScaleType = Enum.ScaleType.Fit,
 		}),
 	})
@@ -331,7 +331,7 @@ function WeroUI:CreateWindow(config)
 		Size = UDim2.fromOffset(28, 28),
 		Position = UDim2.fromOffset(16, 12),
 		Image = WindowIcon or "",
-		ImageColor3 = Theme.AccentLight,
+		ImageColor3 = Color3.new(1, 1, 1),
 		ScaleType = Enum.ScaleType.Fit,
 		ZIndex = 12,
 	})
