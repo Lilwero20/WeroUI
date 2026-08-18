@@ -287,14 +287,14 @@ function WeroUI:CreateWindow(config)
 	local Main = create("Frame", {
 		Name = "Main",
 		Parent = ScreenGui,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0.5, -WindowSize.Y.Offset / 2),
 		Size = WindowSize,
 		BackgroundColor3 = Theme.Background,
 		ClipsDescendants = true,
 		ZIndex = 10,
 	}, {
-		corner(18),
+		corner(24),
 		stroke(Theme.Stroke, 1),
 	})
 
@@ -303,22 +303,6 @@ function WeroUI:CreateWindow(config)
 		Color = Theme.Accent,
 		Thickness = 1,
 		Transparency = 0.85,
-	})
-
-	-- soft shadow (rounded corners to match the window)
-	create("ImageLabel", {
-		Name = "Shadow",
-		Parent = Main,
-		BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, 40, 1, 40),
-		Image = "rbxassetid://1316045217",
-		ImageColor3 = Color3.new(0, 0, 0),
-		ImageTransparency = 0.62,
-		ScaleType = Enum.ScaleType.Slice,
-		SliceCenter = Rect.new(24, 24, 104, 104),
-		ZIndex = 0,
 	})
 
 	----------------------------------------------------------------
@@ -330,12 +314,12 @@ function WeroUI:CreateWindow(config)
 		Size = UDim2.new(1, 0, 0, 52),
 		BackgroundColor3 = Theme.Elevated,
 		ZIndex = 11,
-	}, { corner(18) })
+	}, { corner(24) })
 
 	local TopBarMask = create("Frame", { -- mask bottom corners of topbar square
 		Parent = TopBar,
-		Size = UDim2.new(1, 0, 0, 18),
-		Position = UDim2.new(0, 0, 1, -18),
+		Size = UDim2.new(1, 0, 0, 24),
+		Position = UDim2.new(0, 0, 1, -24),
 		BackgroundColor3 = Theme.Elevated,
 		BorderSizePixel = 0,
 		ZIndex = 11,
