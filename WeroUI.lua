@@ -2,10 +2,14 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 local TextService = game:GetService("TextService")
 
 local LocalPlayer = Players.LocalPlayer
+
+local Global = (getgenv and getgenv()) or _G
+Global.WeroUIInstances = Global.WeroUIInstances or {}
 local Theme = {
 	Background      = Color3.fromRGB(7, 11, 19),
 	Elevated        = Color3.fromRGB(17, 27, 42),
@@ -112,15 +116,16 @@ local function getGuiParent()
 	return CoreGui
 end
 
-local function makeDraggable(dragHandle, target, onStart)
-	local dragging, dragInput, dragStart, startPos
+local function makeDraggable(dragHandle, target, onStart, onMoved)
+	local dragging, dragInput, dragStart, startAbs, moved
 
 	dragHandle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			moved = false
 			if onStart then onStart() end
 			dragStart = input.Position
-			startPos = target.Position
+			startAbs = target.AbsolutePosition
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
 					dragging = false
@@ -138,10 +143,19 @@ local function makeDraggable(dragHandle, target, onStart)
 	UserInputService.InputChanged:Connect(function(input)
 		if input == dragInput and dragging then
 			local delta = input.Position - dragStart
-			target.Position = UDim2.new(
-				startPos.X.Scale, startPos.X.Offset + delta.X,
-				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			if delta.Magnitude > 6 and not moved then
+				moved = true
+				if onMoved then onMoved() end
+			end
+			local desired = startAbs + delta
+			local size = target.AbsoluteSize
+			local res = GuiService:GetScreenResolution()
+			local ax, ay = target.AnchorPoint.X, target.AnchorPoint.Y
+			local clamped = Vector2.new(
+				math.clamp(desired.X, 0, math.max(res.X - size.X, 0)),
+				math.clamp(desired.Y, 0, math.max(res.Y - size.Y, 0))
 			)
+			target.Position = UDim2.new(0, clamped.X + ax * size.X, 0, clamped.Y + ay * size.Y)
 		end
 	end)
 end
@@ -151,6 +165,10 @@ WeroUI.Theme = Theme
 
 function WeroUI:CreateWindow(config)
 	config = config or {}
+	for _, win in ipairs(table.clone(Global.WeroUIInstances)) do
+		pcall(function() win:Destroy() end)
+	end
+	Global.WeroUIInstances = {}
 	local WindowName        = config.Name or "Wero UI"
 	local Subtitle          = config.Subtitle or config.LoadingSubtitle or ""
 	local WindowIcon        = resolveIcon(config.Icon)
@@ -162,6 +180,7 @@ function WeroUI:CreateWindow(config)
 	Window.ToggleKeybind = ToggleKeybind
 	Window.Open = true
 	Window._tabButtons = {}
+	Window._connections = {}
 	local ScreenGui = create("ScreenGui", {
 		Name = "WeroUI_" .. WindowName:gsub("%s", ""),
 		ResetOnSpawn = false,
@@ -171,6 +190,7 @@ function WeroUI:CreateWindow(config)
 	})
 	ScreenGui.Parent = getGuiParent()
 	Window.ScreenGui = ScreenGui
+	table.insert(Global.WeroUIInstances, Window)
 	local DropdownOverlay = create("Frame", {
 		Parent = ScreenGui,
 		Size = UDim2.fromScale(1, 1),
@@ -223,6 +243,11 @@ function WeroUI:CreateWindow(config)
 			TextSize = 20,
 		})
 	end
+	local iconMoved = false
+	makeDraggable(FloatIcon, FloatIcon,
+		function() iconMoved = false end,
+		function() iconMoved = true end
+	)
 	local Main = create("Frame", {
 		Name = "Main",
 		Parent = ScreenGui,
@@ -507,6 +532,7 @@ function WeroUI:CreateWindow(config)
 	MinBtn.MouseLeave:Connect(function() tween(MinBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.15) end)
 
 	FloatIcon.MouseButton1Click:Connect(function()
+		if iconMoved then return end
 		Window:Toggle()
 	end)
 	FloatIcon.MouseEnter:Connect(function() tween(FloatIcon, {BackgroundColor3 = Theme.ElevatedLight}, 0.15) end)
@@ -516,12 +542,12 @@ function WeroUI:CreateWindow(config)
 		Window.ToggleKeybind = keycode
 	end
 
-	UserInputService.InputBegan:Connect(function(input, processed)
+	table.insert(Window._connections, UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then return end
 		if input.KeyCode == Window.ToggleKeybind then
 			Window:Toggle()
 		end
-	end)
+	end))
 	function Window:CreateTab(name, icon)
 		icon = resolveIcon(icon)
 		local isFirst = #Window.Tabs == 0
@@ -1211,8 +1237,30 @@ function WeroUI:CreateWindow(config)
 	end
 
 	function Window:Destroy()
+		for _, conn in ipairs(Window._connections) do
+			pcall(function() conn:Disconnect() end)
+		end
 		ScreenGui:Destroy()
+		for i, win in ipairs(Global.WeroUIInstances) do
+			if win == Window then
+				table.remove(Global.WeroUIInstances, i)
+				break
+			end
+		end
 	end
+
+	task.defer(function()
+		local abs = ScreenGui.AbsoluteSize
+		if abs.X > 0 and abs.Y > 0 then
+			local w = WindowSize.X
+			local h = WindowSize.Y
+			if w.Offset > abs.X then w = UDim.new(w.Scale, abs.X) end
+			if h.Offset > abs.Y then h = UDim.new(h.Scale, abs.Y) end
+			WindowSize = UDim2.new(w.Scale, w.Offset, h.Scale, h.Offset)
+			Main.Size = WindowSize
+			Main.Position = UDim2.new(0.5, 0, 0.5, -WindowSize.Y.Offset / 2)
+		end
+	end)
 
 	return Window
 end
