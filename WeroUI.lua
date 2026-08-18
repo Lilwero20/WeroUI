@@ -697,14 +697,19 @@ function WeroUI:CreateWindow(config)
 				Font = Theme.FontBold, TextSize = 13, TextColor3 = Theme.Text,
 				TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13,
 			})
-			create("TextLabel", {
+			local content = create("TextLabel", {
 				Parent = card, BackgroundTransparency = 1,
 				Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 				Text = opts.Content or "", Font = Theme.Font, TextSize = 12,
 				TextColor3 = Theme.SubText, TextXAlignment = Enum.TextXAlignment.Left,
 				TextWrapped = true, ZIndex = 13,
 			})
-			return card
+			local api = {}
+			function api:SetDescription(txt)
+				content.Text = txt or ""
+			end
+			function api:Set(txt) api:SetDescription(txt) end
+			return api
 		end
 		function Tab:CreateDivider()
 			create("Frame", {
@@ -880,7 +885,7 @@ function WeroUI:CreateWindow(config)
 			if multi then
 				for _, v in ipairs(opts.CurrentOption or {}) do selected[v] = true end
 			else
-				selected[opts.CurrentOption or options[1]] = true
+				selected[opts.CurrentOption or options[1] or ""] = true
 			end
 
 			local card = baseCard(40)
@@ -975,7 +980,7 @@ function WeroUI:CreateWindow(config)
 				Backdrop.Visible = true
 			end
 
-			local api = { Value = multi and selected or (opts.CurrentOption or options[1]) }
+			local api = { Value = multi and selected or (opts.CurrentOption or options[1] or "") }
 
 			local function refreshOptions()
 				for _, c in ipairs(ListFrame:GetChildren()) do
@@ -1026,6 +1031,21 @@ function WeroUI:CreateWindow(config)
 			function api:Refresh(newOptions)
 				options = newOptions
 				refreshOptions()
+			end
+			api.Reload = api.Refresh
+
+			function api:Set(optName)
+				if multi then
+					for k in pairs(selected) do selected[k] = nil end
+					selected[optName] = true
+				else
+					selected = { [optName] = true }
+				end
+				api.Value = multi and selected or optName
+				DisplayLabel.Text = currentText()
+				refreshOptions()
+				local ok, err = pcall(opts.Callback or function() end, api.Value)
+				if not ok then warn("[WeroUI] Dropdown Set callback error: " .. tostring(err)) end
 			end
 
 			return api
@@ -1095,7 +1115,9 @@ function WeroUI:CreateWindow(config)
 			end)
 
 			UserInputService.InputBegan:Connect(function(input, processed)
-				if listening and input.UserInputType == Enum.UserInputType.Keyboard then
+				if processed then return end
+				if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+				if listening then
 					currentKey = input.KeyCode
 					api.Value = currentKey
 					KeyBtn.Text = currentKey.Name
@@ -1103,6 +1125,9 @@ function WeroUI:CreateWindow(config)
 					tween(KeyBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.15)
 					local ok, err = pcall(opts.Callback or function() end, currentKey)
 					if not ok then warn("[WeroUI] Keybind callback error: " .. tostring(err)) end
+				elseif input.KeyCode == currentKey then
+					local ok, err = pcall(opts.Callback or function() end, currentKey)
+					if not ok then warn("[WeroUI] Keybind press callback error: " .. tostring(err)) end
 				end
 			end)
 
