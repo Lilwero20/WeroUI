@@ -1,14 +1,14 @@
 --[[
-	KyroUI — Roblox UI Library
-	Tema morado profesional, inspirado en el logo "K".
+	WeroUI — Roblox UI Library
+	Tema azul profesional.
 
 	Repositorio: sube este archivo a GitHub (raw) y cárgalo con loadstring(game:HttpGet(...))()
 
 	API rápida:
-		local KyroUI = loadstring(game:HttpGet("RAW_URL_AQUI"))()
+		local WeroUI = loadstring(game:HttpGet("RAW_URL_AQUI"))()
 
-		local Window = KyroUI:CreateWindow({
-			Name = "Kyro UI",
+		local Window = WeroUI:CreateWindow({
+			Name = "Wero UI",
 			Subtitle = "by TuNombre",
 			Icon = 0,                         -- rbxassetid numérico del logo (opcional)
 			ToggleKeybind = Enum.KeyCode.LeftControl,
@@ -24,7 +24,7 @@
 		Tab:CreateInput({ Name = "Input", PlaceholderText = "Escribe algo...", Callback = function(v) end })
 		Tab:CreateParagraph({ Title = "Título", Content = "Contenido del párrafo." })
 		Tab:CreateKeybind({ Name = "Keybind", CurrentKeybind = "F", Callback = function(v) end })
-		Tab:CreateColorPicker({ Name = "Color", Color = Color3.fromRGB(151,71,255), Callback = function(c) end })
+		Tab:CreateColorPicker({ Name = "Color", Color = Color3.fromRGB(28,152,235), Callback = function(c) end })
 		Tab:CreateDivider()
 		Tab:CreateLabel("Texto simple")
 ]]
@@ -42,15 +42,15 @@ local LocalPlayer = Players.LocalPlayer
 -- THEME
 --------------------------------------------------------------------
 local Theme = {
-	Background      = Color3.fromRGB(16, 9, 27),
-	Elevated        = Color3.fromRGB(23, 13, 39),
-	ElevatedLight   = Color3.fromRGB(31, 18, 52),
-	Stroke          = Color3.fromRGB(54, 33, 84),
-	Accent          = Color3.fromRGB(151, 71, 255),
-	AccentLight     = Color3.fromRGB(198, 143, 255),
-	AccentDark      = Color3.fromRGB(104, 41, 209),
-	Text            = Color3.fromRGB(237, 232, 245),
-	SubText         = Color3.fromRGB(163, 152, 184),
+	Background      = Color3.fromRGB(9, 15, 24),
+	Elevated        = Color3.fromRGB(15, 24, 38),
+	ElevatedLight   = Color3.fromRGB(23, 36, 55),
+	Stroke          = Color3.fromRGB(40, 68, 100),
+	Accent          = Color3.fromRGB(28, 152, 235),
+	AccentLight     = Color3.fromRGB(118, 203, 252),
+	AccentDark      = Color3.fromRGB(16, 108, 172),
+	Text            = Color3.fromRGB(235, 240, 247),
+	SubText         = Color3.fromRGB(152, 172, 190),
 	Success         = Color3.fromRGB(97, 219, 138),
 	Error           = Color3.fromRGB(255, 96, 96),
 	Font            = Enum.Font.GothamMedium,
@@ -151,12 +151,13 @@ local function getGuiParent()
 	return CoreGui
 end
 
-local function makeDraggable(dragHandle, target)
+local function makeDraggable(dragHandle, target, onStart)
 	local dragging, dragInput, dragStart, startPos
 
 	dragHandle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			if onStart then onStart() end
 			dragStart = input.Position
 			startPos = target.Position
 			input.Changed:Connect(function()
@@ -187,19 +188,19 @@ end
 --------------------------------------------------------------------
 -- LIBRARY
 --------------------------------------------------------------------
-local KyroUI = {}
-KyroUI.__index = KyroUI
-KyroUI.Theme = Theme
+local WeroUI = {}
+WeroUI.__index = WeroUI
+WeroUI.Theme = Theme
 
-function KyroUI:CreateWindow(config)
+function WeroUI:CreateWindow(config)
 	config = config or {}
-	local WindowName        = config.Name or "Kyro UI"
+	local WindowName        = config.Name or "Wero UI"
 	local Subtitle          = config.Subtitle or config.LoadingSubtitle or ""
 	local WindowIcon        = resolveIcon(config.Icon)
 	local ToggleKeybind     = config.ToggleKeybind or Enum.KeyCode.LeftControl
 	local WindowSize        = config.Size or UDim2.fromOffset(560, 380)
 
-	local Window = setmetatable({}, KyroUI)
+	local Window = setmetatable({}, WeroUI)
 	Window.Tabs = {}
 	Window.ToggleKeybind = ToggleKeybind
 	Window.Open = true
@@ -209,7 +210,7 @@ function KyroUI:CreateWindow(config)
 	-- ROOT
 	----------------------------------------------------------------
 	local ScreenGui = create("ScreenGui", {
-		Name = "KyroUI_" .. WindowName:gsub("%s", ""),
+		Name = "WeroUI_" .. WindowName:gsub("%s", ""),
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder = 999,
@@ -217,6 +218,25 @@ function KyroUI:CreateWindow(config)
 	})
 	ScreenGui.Parent = getGuiParent()
 	Window.ScreenGui = ScreenGui
+
+	----------------------------------------------------------------
+	-- DROPDOWN OVERLAY (keeps popouts on top of everything)
+	----------------------------------------------------------------
+	local DropdownOverlay = create("Frame", {
+		Parent = ScreenGui,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 200,
+	})
+
+	local openDropdown = nil
+	local function closeOpenDropdown()
+		if openDropdown then
+			openDropdown.list.Visible = false
+			openDropdown.backdrop.Visible = false
+			openDropdown = nil
+		end
+	end
 
 	----------------------------------------------------------------
 	-- FLOATING TOGGLE ICON (rounded square, top-center)
@@ -387,7 +407,7 @@ function KyroUI:CreateWindow(config)
 		ZIndex = 12,
 	}, { corner(8) })
 
-	makeDraggable(TopBar, Main)
+	makeDraggable(TopBar, Main, closeOpenDropdown)
 
 	----------------------------------------------------------------
 	-- SIDEBAR (tabs)
@@ -486,11 +506,20 @@ function KyroUI:CreateWindow(config)
 		})
 
 		Card.BackgroundTransparency = 1
+		local slideX = math.max(NotifyHolder.AbsoluteSize.X, 8)
+		Card.Position = UDim2.new(0, slideX + 8, 0, 0)
 		task.spawn(function()
-			tween(Card, { BackgroundTransparency = 0 }, 0.2)
-			task.wait(duration)
-			tween(Card, { BackgroundTransparency = 1 }, 0.2)
-			task.wait(0.25)
+			tween(Card, {
+				Position = UDim2.fromOffset(0, 0),
+				BackgroundTransparency = 0,
+			}, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+			task.wait(duration + 0.3)
+			local out = tween(Card, {
+				Position = UDim2.fromOffset(slideX + 8, 0),
+				BackgroundTransparency = 1,
+			}, 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+			out.Completed:Wait()
 			Card:Destroy()
 		end)
 	end
@@ -506,6 +535,7 @@ function KyroUI:CreateWindow(config)
 			Main.Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, 0)
 			tween(Main, { Size = WindowSize }, 0.25)
 		else
+			closeOpenDropdown()
 			local closing = tween(Main, { Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, 0) }, 0.2)
 			closing.Completed:Connect(function()
 				if not Window.Open then
@@ -760,7 +790,7 @@ function KyroUI:CreateWindow(config)
 				task.wait(0.08)
 				tween(Btn, { BackgroundColor3 = Theme.Accent }, 0.15)
 				local ok, err = pcall(opts.Callback or function() end)
-				if not ok then warn("[KyroUI] Button callback error: " .. tostring(err)) end
+				if not ok then warn("[WeroUI] Button callback error: " .. tostring(err)) end
 			end)
 			return { Instance = card }
 		end
@@ -802,7 +832,7 @@ function KyroUI:CreateWindow(config)
 				tween(Switch, { BackgroundColor3 = state and Theme.Accent or Theme.ElevatedLight }, 0.15)
 				tween(Knob, { Position = state and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0) }, 0.15)
 				local ok, err = pcall(opts.Callback or function() end, state)
-				if not ok then warn("[KyroUI] Toggle callback error: " .. tostring(err)) end
+				if not ok then warn("[WeroUI] Toggle callback error: " .. tostring(err)) end
 			end
 
 			Click.MouseButton1Click:Connect(function() api:Set(not state) end)
@@ -878,7 +908,7 @@ function KyroUI:CreateWindow(config)
 				Grabber.Position = UDim2.new(a, 0, 0.5, 0)
 				ValueLabel.Text = tostring(raw)
 				local ok, err = pcall(opts.Callback or function() end, raw)
-				if not ok then warn("[KyroUI] Slider callback error: " .. tostring(err)) end
+				if not ok then warn("[WeroUI] Slider callback error: " .. tostring(err)) end
 			end
 
 			Track.InputBegan:Connect(function(input)
@@ -952,16 +982,47 @@ function KyroUI:CreateWindow(config)
 			})
 
 			local ListFrame = create("Frame", {
-				Parent = card,
-				AnchorPoint = Vector2.new(1, 0),
-				Position = UDim2.new(1, 0, 1, 6),
-				Size = UDim2.new(0, 150, 0, 0),
+				Parent = DropdownOverlay,
+				Size = UDim2.fromOffset(150, 0),
 				AutomaticSize = Enum.AutomaticSize.Y,
 				BackgroundColor3 = Theme.ElevatedLight,
 				Visible = false,
-				ZIndex = 30,
+				ZIndex = 300,
 				ClipsDescendants = true,
 			}, { corner(8), stroke(Theme.Stroke, 1), pad(4, 4, 4, 4), listLayout(Enum.FillDirection.Vertical, 2) })
+
+			local Backdrop = create("TextButton", {
+				Parent = DropdownOverlay,
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Text = "",
+				Visible = false,
+				ZIndex = 299,
+			})
+
+			local function hideList()
+				ListFrame.Visible = false
+				Backdrop.Visible = false
+				if openDropdown and openDropdown.list == ListFrame then openDropdown = nil end
+			end
+			Backdrop.MouseButton1Click:Connect(hideList)
+
+			local function showList()
+				closeOpenDropdown()
+				openDropdown = { list = ListFrame, backdrop = Backdrop }
+
+				local btnAbs = DisplayBtn.AbsolutePosition
+				local overAbs = DropdownOverlay.AbsolutePosition
+				local x = btnAbs.X - overAbs.X
+				local y = btnAbs.Y + DisplayBtn.AbsoluteSize.Y + 6 - overAbs.Y
+				local estHeight = 8 + #options * 26 + math.max(#options - 1, 0) * 2
+				if y + estHeight > DropdownOverlay.AbsoluteSize.Y then
+					y = btnAbs.Y - estHeight - 6 - overAbs.Y
+				end
+				ListFrame.Position = UDim2.fromOffset(x, y)
+				ListFrame.Visible = true
+				Backdrop.Visible = true
+			end
 
 			local api = { Value = multi and selected or (opts.CurrentOption or options[1]) }
 
@@ -990,23 +1051,28 @@ function KyroUI:CreateWindow(config)
 						else
 							selected = { [optName] = true }
 							api.Value = optName
-							ListFrame.Visible = false
+							hideList()
 						end
 						DisplayLabel.Text = currentText()
 						refreshOptions()
 						local ok, err = pcall(opts.Callback or function() end, api.Value)
-						if not ok then warn("[KyroUI] Dropdown callback error: " .. tostring(err)) end
+						if not ok then warn("[WeroUI] Dropdown callback error: " .. tostring(err)) end
 					end)
 				end
 			end
 			refreshOptions()
 
 			DisplayBtn.MouseButton1Click:Connect(function()
-				ListFrame.Visible = not ListFrame.Visible
+				if ListFrame.Visible then
+					hideList()
+				else
+					showList()
+				end
 			end)
 
 			function api:Refresh(newOptions)
 				options = newOptions
+				if ListFrame.Visible then showList() end
 				refreshOptions()
 			end
 
@@ -1041,7 +1107,7 @@ function KyroUI:CreateWindow(config)
 			Box.FocusLost:Connect(function(enterPressed)
 				api.Value = Box.Text
 				local ok, err = pcall(opts.Callback or function() end, Box.Text, enterPressed)
-				if not ok then warn("[KyroUI] Input callback error: " .. tostring(err)) end
+				if not ok then warn("[WeroUI] Input callback error: " .. tostring(err)) end
 			end)
 			function api:Set(text) Box.Text = text; api.Value = text end
 			return api
@@ -1092,7 +1158,7 @@ function KyroUI:CreateWindow(config)
 					listening = false
 					tween(KeyBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.15)
 					local ok, err = pcall(opts.Callback or function() end, currentKey)
-					if not ok then warn("[KyroUI] Keybind callback error: " .. tostring(err)) end
+					if not ok then warn("[WeroUI] Keybind callback error: " .. tostring(err)) end
 				end
 			end)
 
@@ -1139,7 +1205,7 @@ function KyroUI:CreateWindow(config)
 				api.Value = c
 				Swatch.BackgroundColor3 = c
 				local ok, err = pcall(opts.Callback or function() end, c)
-				if not ok then warn("[KyroUI] ColorPicker callback error: " .. tostring(err)) end
+				if not ok then warn("[WeroUI] ColorPicker callback error: " .. tostring(err)) end
 			end
 
 			for i, ch in ipairs(channels) do
@@ -1203,4 +1269,4 @@ function KyroUI:CreateWindow(config)
 	return Window
 end
 
-return KyroUI
+return WeroUI
