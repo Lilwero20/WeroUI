@@ -20,20 +20,18 @@ Está diseñada para ser simple, ligera y bonita: creas una ventana, agregas pes
 
 ## Instalación
 
-Sube el archivo `WeroUI.lua` a GitHub (raw) y cárgalo con `loadstring`:
+Carga la librería directamente desde el repositorio:
 
 ```lua
-local WeroUI = loadstring(game:HttpGet("TU_URL_RAW_AQUI"))()
+local WeroUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Lilwero20/WeroUI/main/WeroUI.lua"))()
 ```
-
-Reemplaza `TU_URL_RAW_AQUI` por la URL raw real de tu archivo (por ejemplo: `https://raw.githubusercontent.com/tu-usuario/tu-repo/main/WeroUI.lua`).
 
 ---
 
 ## Ejemplo mínimo (todo lo básico)
 
 ```lua
-local WeroUI = loadstring(game:HttpGet("TU_URL_RAW_AQUI"))()
+local WeroUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Lilwero20/WeroUI/main/WeroUI.lua"))()
 
 local Window = WeroUI:CreateWindow({
     Name = "Mi Script",
@@ -413,7 +411,7 @@ Color:Set(Color3.fromRGB(0, 200, 140))
 # Ejemplo completo
 
 ```lua
-local WeroUI = loadstring(game:HttpGet("TU_URL_RAW_AQUI"))()
+local WeroUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Lilwero20/WeroUI/main/WeroUI.lua"))()
 
 local Window = WeroUI:CreateWindow({
     Name = "WeroHub",
