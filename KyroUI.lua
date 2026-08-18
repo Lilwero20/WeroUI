@@ -42,15 +42,15 @@ local LocalPlayer = Players.LocalPlayer
 -- THEME
 --------------------------------------------------------------------
 local Theme = {
-	Background      = Color3.fromRGB(9, 15, 24),
-	Elevated        = Color3.fromRGB(15, 24, 38),
-	ElevatedLight   = Color3.fromRGB(23, 36, 55),
-	Stroke          = Color3.fromRGB(40, 68, 100),
+	Background      = Color3.fromRGB(7, 11, 19),
+	Elevated        = Color3.fromRGB(17, 27, 42),
+	ElevatedLight   = Color3.fromRGB(31, 47, 70),
+	Stroke          = Color3.fromRGB(56, 88, 128),
 	Accent          = Color3.fromRGB(28, 152, 235),
-	AccentLight     = Color3.fromRGB(118, 203, 252),
-	AccentDark      = Color3.fromRGB(16, 108, 172),
-	Text            = Color3.fromRGB(235, 240, 247),
-	SubText         = Color3.fromRGB(152, 172, 190),
+	AccentLight     = Color3.fromRGB(132, 208, 252),
+	AccentDark      = Color3.fromRGB(14, 96, 158),
+	Text            = Color3.fromRGB(250, 252, 255),
+	SubText         = Color3.fromRGB(176, 194, 212),
 	Success         = Color3.fromRGB(97, 219, 138),
 	Error           = Color3.fromRGB(255, 96, 96),
 	Font            = Enum.Font.GothamMedium,
@@ -981,15 +981,29 @@ function WeroUI:CreateWindow(config)
 				TextSize = 12, TextColor3 = Theme.SubText, ZIndex = 14,
 			})
 
-			local ListFrame = create("Frame", {
+			local OPTION_H = 26
+			local OPTION_GAP = 2
+			local OPTION_PAD = 8
+			local MAX_VISIBLE_OPTIONS = 5
+
+			local function listHeight()
+				local n = math.min(#options, MAX_VISIBLE_OPTIONS)
+				return OPTION_PAD + n * OPTION_H + math.max(n - 1, 0) * OPTION_GAP
+			end
+
+			local ListFrame = create("ScrollingFrame", {
 				Parent = DropdownOverlay,
-				Size = UDim2.fromOffset(150, 0),
-				AutomaticSize = Enum.AutomaticSize.Y,
+				Size = UDim2.new(0, 150, 0, listHeight()),
+				CanvasSize = UDim2.new(0, 0, 0, 0),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				ScrollBarThickness = 3,
+				ScrollBarImageColor3 = Theme.Accent,
 				BackgroundColor3 = Theme.ElevatedLight,
+				BorderSizePixel = 0,
 				Visible = false,
 				ZIndex = 300,
 				ClipsDescendants = true,
-			}, { corner(8), stroke(Theme.Stroke, 1), pad(4, 4, 4, 4), listLayout(Enum.FillDirection.Vertical, 2) })
+			}, { corner(8), stroke(Theme.Stroke, 1), pad(4, 4, 4, 4), listLayout(Enum.FillDirection.Vertical, OPTION_GAP) })
 
 			local Backdrop = create("TextButton", {
 				Parent = DropdownOverlay,
@@ -1015,9 +1029,9 @@ function WeroUI:CreateWindow(config)
 				local overAbs = DropdownOverlay.AbsolutePosition
 				local x = btnAbs.X - overAbs.X
 				local y = btnAbs.Y + DisplayBtn.AbsoluteSize.Y + 6 - overAbs.Y
-				local estHeight = 8 + #options * 26 + math.max(#options - 1, 0) * 2
-				if y + estHeight > DropdownOverlay.AbsoluteSize.Y then
-					y = btnAbs.Y - estHeight - 6 - overAbs.Y
+				local h = ListFrame.AbsoluteSize.Y
+				if y + h > DropdownOverlay.AbsoluteSize.Y then
+					y = btnAbs.Y - h - 6 - overAbs.Y
 				end
 				ListFrame.Position = UDim2.fromOffset(x, y)
 				ListFrame.Visible = true
@@ -1059,6 +1073,8 @@ function WeroUI:CreateWindow(config)
 						if not ok then warn("[WeroUI] Dropdown callback error: " .. tostring(err)) end
 					end)
 				end
+				ListFrame.Size = UDim2.new(0, 150, 0, listHeight())
+				if ListFrame.Visible then showList() end
 			end
 			refreshOptions()
 
@@ -1072,7 +1088,6 @@ function WeroUI:CreateWindow(config)
 
 			function api:Refresh(newOptions)
 				options = newOptions
-				if ListFrame.Visible then showList() end
 				refreshOptions()
 			end
 
@@ -1187,14 +1202,44 @@ function WeroUI:CreateWindow(config)
 			}, { corner(7), stroke(Theme.Stroke, 1) })
 
 			local Popout = create("Frame", {
-				Parent = card,
-				AnchorPoint = Vector2.new(1, 0),
-				Position = UDim2.new(1, 0, 1, 6),
+				Parent = DropdownOverlay,
 				Size = UDim2.fromOffset(180, 130),
 				BackgroundColor3 = Theme.ElevatedLight,
 				Visible = false,
-				ZIndex = 30,
+				ZIndex = 300,
 			}, { corner(8), stroke(Theme.Stroke, 1), pad(10, 10, 10, 10), listLayout(Enum.FillDirection.Vertical, 6) })
+
+			local PBackdrop = create("TextButton", {
+				Parent = DropdownOverlay,
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Text = "",
+				Visible = false,
+				ZIndex = 299,
+			})
+
+			local function hidePopout()
+				Popout.Visible = false
+				PBackdrop.Visible = false
+				if openDropdown and openDropdown.list == Popout then openDropdown = nil end
+			end
+
+			local function showPopout()
+				closeOpenDropdown()
+				openDropdown = { list = Popout, backdrop = PBackdrop }
+
+				local swAbs = Swatch.AbsolutePosition
+				local overAbs = DropdownOverlay.AbsolutePosition
+				local x = swAbs.X - overAbs.X
+				local y = swAbs.Y + Swatch.AbsoluteSize.Y + 6 - overAbs.Y
+				if y + Popout.AbsoluteSize.Y > DropdownOverlay.AbsoluteSize.Y then
+					y = swAbs.Y - Popout.AbsoluteSize.Y - 6 - overAbs.Y
+				end
+				Popout.Position = UDim2.fromOffset(x, y)
+				Popout.Visible = true
+				PBackdrop.Visible = true
+			end
+			PBackdrop.MouseButton1Click:Connect(hidePopout)
 
 			local api = { Value = color }
 			local channels = { "R", "G", "B" }
@@ -1247,7 +1292,11 @@ function WeroUI:CreateWindow(config)
 			end
 
 			Swatch.MouseButton1Click:Connect(function()
-				Popout.Visible = not Popout.Visible
+				if Popout.Visible then
+					hidePopout()
+				else
+					showPopout()
+				end
 			end)
 
 			function api:Set(c)
