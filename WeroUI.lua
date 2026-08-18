@@ -147,7 +147,7 @@ local function makeDraggable(dragHandle, target, onStart, onMoved)
 				moved = true
 				if onMoved then onMoved() end
 			end
-			local desired = startAbs + delta
+			local desired = startAbs + (typeof(delta) == "Vector3" and Vector2.new(delta.X, delta.Y) or delta)
 			local size = target.AbsoluteSize
 			local res = GuiService:GetScreenResolution()
 			local ax, ay = target.AnchorPoint.X, target.AnchorPoint.Y
@@ -1266,3 +1266,4 @@ function WeroUI:CreateWindow(config)
 end
 
 return WeroUI
+
