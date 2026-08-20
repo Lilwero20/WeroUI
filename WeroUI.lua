@@ -33,8 +33,6 @@ local Theme = {
 	CardRadius      = 10,
 }
 
--- Presets de color listos para usar con WeroUI:UsePreset("Nombre").
--- Solo tocan los campos de color del tema; tipografía y radios quedan igual.
 local ThemePresets = {
 	Blue = {
 		Background = Color3.fromRGB(7, 11, 19), Elevated = Color3.fromRGB(17, 27, 42),
