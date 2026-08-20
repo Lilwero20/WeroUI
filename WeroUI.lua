@@ -720,19 +720,12 @@ function WeroUI:CreateWindow(config)
 			Text = "",
 			ZIndex = 31,
 		})
-		-- El grip queda pegado a la esquina de Main pase lo que pase, así
-		-- que si la ventana está minimizada (Main achicado a 52px) seguía
-		-- siendo arrastrable ahí mismo y forzaba a Main a un tamaño entre
-		-- MinSize/MaxSize sin importar el estado minimizado, dejando todo
-		-- desincronizado (ver Window:SetMinimized, que ahora lo oculta).
+
 		makeResizable(GripBtn, Main, MinSize, MaxSize, function(newSize)
 			WindowSize = UDim2.new(WindowSize.X.Scale, newSize.X.Offset, WindowSize.Y.Scale, newSize.Y.Offset)
 		end, Window._connections)
 	end
 
-	-- El contenedor se ancla abajo-derecha y su alto se limita a un % de la
-	-- pantalla (nunca fijo en 400px), así nunca puede taparlo todo aunque
-	-- se acumulen varias notificaciones.
 	local NotifyHolder = create("Frame", {
 		Parent = ScreenGui,
 		AnchorPoint = Vector2.new(1, 1),
@@ -756,7 +749,7 @@ function WeroUI:CreateWindow(config)
 
 	local MAX_NOTIFICATIONS = 5
 	local MAX_CONTENT_CHARS = 260
-	local activeNotifications = {} -- cola FIFO de tarjetas activas
+	local activeNotifications = {}
 
 	local function removeNotification(entry, instant)
 		if entry.removed then return end
@@ -779,8 +772,6 @@ function WeroUI:CreateWindow(config)
 		end)
 	end
 
-	-- opts.Title, opts.Content, opts.Type ("Success"|"Error"|"Warning"|"Info"),
-	-- opts.Duration en segundos (0 o false = se queda hasta cerrarla con la X).
 	function Window:Notify(opts)
 		opts = opts or {}
 		local title = tostring(opts.Title or "Notificación")
@@ -793,15 +784,10 @@ function WeroUI:CreateWindow(config)
 		local sticky = duration == false or duration <= 0
 		local accentColor = NOTIFY_COLORS[opts.Type] or Theme.AccentLight
 
-		-- Si ya hay demasiadas notificaciones abiertas, se cierra la más vieja
-		-- de inmediato para dejar espacio (evita que se acumulen sin límite).
 		while #activeNotifications >= MAX_NOTIFICATIONS do
 			removeNotification(activeNotifications[1], true)
 		end
 
-		-- Card: elemento administrado por el UIListLayout de NotifyHolder.
-		-- Nunca se le toca Position manualmente (eso es lo que rompía la
-		-- animación antes); solo su Size, que UIListLayout no controla.
 		local Card = create("Frame", {
 			Parent = NotifyHolder,
 			Size = UDim2.new(1, 0, 0, 0),
@@ -810,9 +796,6 @@ function WeroUI:CreateWindow(config)
 			ZIndex = 100,
 		})
 
-		-- Slide: el visual real. Está un nivel adentro de Card, así que
-		-- animar su Position para el efecto de entrada/salida no compite
-		-- con el layout del contenedor.
 		local Slide = create("Frame", {
 			Parent = Card,
 			Size = UDim2.new(1, 0, 0, 0),
@@ -823,11 +806,6 @@ function WeroUI:CreateWindow(config)
 			ClipsDescendants = true,
 		}, { corner(10), stroke(Theme.Stroke, 1) })
 
-		-- Bloque de texto: SOLO título+contenido viven dentro del
-		-- UIListLayout interno. La barra de acento NO participa de ese
-		-- layout (antes sí, y su Size Y en Scale (1,0) generaba una
-		-- referencia circular con el AutomaticSize del padre, causando que
-		-- la tarjeta creciera sin control hasta tapar la pantalla).
 		local TextStack = create("Frame", {
 			Parent = Slide,
 			Position = UDim2.fromOffset(15, 0),
@@ -847,8 +825,7 @@ function WeroUI:CreateWindow(config)
 			BorderSizePixel = 0,
 			ZIndex = 101,
 		})
-		-- Alto de la barra en offset (px), sincronizado al tamaño real ya
-		-- resuelto de Slide, para no depender de un Scale circular.
+
 		local function syncStripHeight()
 			AccentStrip.Size = UDim2.new(0, 3, 0, Slide.AbsoluteSize.Y)
 		end
@@ -923,7 +900,6 @@ function WeroUI:CreateWindow(config)
 		end
 	end
 
-	-- Cierra todas las notificaciones visibles al instante.
 	function Window:ClearNotifications()
 		for _, entry in ipairs(table.clone(activeNotifications)) do
 			removeNotification(entry, true)
@@ -962,12 +938,7 @@ function WeroUI:CreateWindow(config)
 		TopBarMask.Visible = not state
 		MinBtnMinus.Visible = not state
 		MinBtnPlus.Visible = state
-		-- No basta con encoger Main y confiar en ClipsDescendants: durante el
-		-- tween, el recorte no siempre acompaña el cambio de tamaño a tiempo
-		-- (sobre todo con el ScrollingFrame de tabs, que tiene
-		-- AutomaticCanvasSize), y botones/íconos del contenido quedan
-		-- "flotando" visibles fuera de la barra minimizada. Por eso además
-		-- ocultamos Sidebar/ContentArea explícitamente.
+
 		if state then
 			Sidebar.Visible = false
 			ContentArea.Visible = false
@@ -1006,11 +977,6 @@ function WeroUI:CreateWindow(config)
 		Theme.AccentDark = Color3.new(color.R * 0.55, color.G * 0.55, color.B * 0.55)
 	end
 
-	-- Diálogo modal de confirmación.
-	-- opts = { Title, Content, ConfirmText, CancelText, ShowCancel }
-	-- Devuelve un booleano vía opts.Callback(confirmed) y también acepta
-	-- yield: `if Window:Prompt({...}) then ... end` (bloquea la coroutine
-	-- actual hasta que el usuario responde).
 	function Window:Prompt(opts)
 		opts = opts or {}
 		local co = coroutine.running()
@@ -1225,9 +1191,6 @@ function WeroUI:CreateWindow(config)
 		end
 		TabButton.MouseButton1Click:Connect(selectTab)
 
-		-- autoGrow = true: la card crece en alto si su contenido (p. ej. una
-		-- descripción larga en varias líneas) no entra en "height". Se usa
-		-- en Botón/Toggle, que pueden tener Description opcional.
 		local function baseCard(height, autoGrow)
 			return create("Frame", {
 				Parent = Page,
@@ -1238,11 +1201,6 @@ function WeroUI:CreateWindow(config)
 			}, { corner(Theme.CardRadius), stroke(Theme.Stroke, 1), pad(10, 10, 12, 12) })
 		end
 
-		-- Bloque de nombre + descripción opcional. "holder" mide su alto
-		-- según su propio contenido (AutomaticSize) y se centra verticalmente
-		-- dentro de la card con AnchorPoint, así que si la card crece (ver
-		-- baseCard autoGrow) el bloque de texto crece con ella en vez de
-		-- quedar recortado a un % fijo de una altura fija.
 		local function nameSub(parent, nameText, descText)
 			local holder = create("Frame", {
 				Parent = parent,
@@ -1341,7 +1299,6 @@ function WeroUI:CreateWindow(config)
 			return api
 		end
 
-		-- opts = { Image, Title, Height (default 160), ScaleType }
 		function Tab:CreateImage(opts)
 			opts = opts or {}
 			local height = opts.Height or 160
@@ -1603,9 +1560,7 @@ function WeroUI:CreateWindow(config)
 			local options = opts.Options or {}
 			local multi = opts.MultipleOptions or false
 			local searchable = opts.Searchable or false
-			-- Por defecto: los de selección simple se cierran al elegir, los
-			-- multi-selección se quedan abiertos (como antes). Se puede forzar
-			-- con opts.CloseOnSelect = true/false en cualquiera de los dos casos.
+
 			local closeOnSelect = opts.CloseOnSelect
 			if closeOnSelect == nil then closeOnSelect = not multi end
 			local selected = {}
@@ -1637,9 +1592,6 @@ function WeroUI:CreateWindow(config)
 				tween(DisplayBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.12)
 			end)
 
-			-- Recorremos "options" (no "selected") para que el orden mostrado sea
-			-- estable y para que las selecciones que ya no existen (tras un Refresh)
-			-- no se queden "fantasma" en el texto.
 			local function currentText()
 				local list = {}
 				for _, optName in ipairs(options) do
@@ -1669,8 +1621,7 @@ function WeroUI:CreateWindow(config)
 			local OPTION_H = 27
 			local OPTION_GAP = 4
 			local OPTION_PAD = 8
-			-- Cuántas opciones se ven sin necesidad de hacer scroll. Con más
-			-- opciones que esto, la lista se vuelve scrolleable automáticamente.
+
 			local MAX_VISIBLE_OPTIONS = opts.MaxVisibleOptions or 5
 			local SEARCH_H = searchable and 34 or 0
 			local EMPTY_H = 26
@@ -1703,16 +1654,6 @@ function WeroUI:CreateWindow(config)
 				}, { corner(6), pad(0, 0, 8, 8) })
 			end
 
-			-- IMPORTANTE: este ScrollingFrame es el que permite hacer scroll
-			-- cuando hay más opciones de las que caben. AutomaticCanvasSize ya
-			-- calcula bien el área scrolleable en base al contenido real; el bug
-			-- original era que el ListFrame (el contenedor visible de afuera)
-			-- tenía una altura FIJA calculada una sola vez al crear el dropdown,
-			-- así que si luego cambiaban las opciones (Refresh) o se filtraba con
-			-- la búsqueda, el área visible se quedaba con el tamaño viejo (a
-			-- veces minúsculo) aunque por dentro sí hubiera más opciones para
-			-- scrollear. Ahora resizeList() recalcula y anima esa altura cada
-			-- vez que cambia la cantidad de opciones visibles.
 			local OptionsScroll = create("ScrollingFrame", {
 				Parent = ListFrame,
 				Position = UDim2.fromOffset(0, SEARCH_H),
@@ -1885,7 +1826,7 @@ function WeroUI:CreateWindow(config)
 				resizeList(shown, true)
 				return shown
 			end
-			refreshOptions() -- ya deja ListFrame con el tamaño correcto (sin animar, porque aún no es visible)
+			refreshOptions()
 
 			if SearchBox then
 				SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
@@ -1903,8 +1844,7 @@ function WeroUI:CreateWindow(config)
 
 			function api:Refresh(newOptions)
 				options = newOptions or {}
-				-- Limpiamos selecciones que ya no existen en la nueva lista para
-				-- que no queden seleccionadas "a ciegas" opciones eliminadas.
+
 				if multi then
 					for k in pairs(selected) do
 						if not table.find(options, k) then selected[k] = nil end
@@ -2005,10 +1945,7 @@ function WeroUI:CreateWindow(config)
 				listening = true
 				KeyBtn.Text = "..."
 				tween(KeyBtn, { BackgroundColor3 = Theme.Accent }, 0.15)
-				-- Si algún TextBox del menú (p. ej. un input de búsqueda)
-				-- se quedó con el foco, Roblox marca CUALQUIER tecla como
-				-- "processed" y nunca llegaría a este listener. Le sacamos
-				-- el foco a mano para asegurarnos de poder capturar la tecla.
+
 				local focused = UserInputService:GetFocusedTextBox()
 				if focused then focused:ReleaseFocus() end
 			end)
@@ -2016,10 +1953,7 @@ function WeroUI:CreateWindow(config)
 			table.insert(Window._connections, UserInputService.InputBegan:Connect(function(input, processed)
 				if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 				if listening then
-					-- A propósito NO chequeamos "processed" acá: el usuario
-					-- ya hizo click en el botón para pedir capturar una
-					-- tecla, así que debe funcionar sin importar qué otro
-					-- elemento tenga el foco. Escape cancela sin asignar.
+
 					if input.KeyCode == Enum.KeyCode.Escape then
 						listening = false
 						KeyBtn.Text = currentKey.Name
