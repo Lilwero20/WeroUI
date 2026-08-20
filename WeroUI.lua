@@ -218,6 +218,37 @@ local function minmaxIcon(parent, color, size, isPlus)
 	return holder
 end
 
+local function checkIcon(parent, color, size)
+	size = size or 10
+	local holder = create("Frame", {
+		Parent = parent,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		ZIndex = 14,
+	})
+	create("Frame", {
+		Parent = holder,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(size * 0.36, 1.6),
+		Position = UDim2.new(0.26, 0, 0.6, 0),
+		Rotation = 45,
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(1) })
+	create("Frame", {
+		Parent = holder,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(size * 0.64, 1.6),
+		Position = UDim2.new(0.62, 0, 0.36, 0),
+		Rotation = -45,
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(1) })
+	return holder
+end
+
 local function getViewportSize()
 	local camera = workspace.CurrentCamera
 	if camera then
@@ -1260,6 +1291,11 @@ function WeroUI:CreateWindow(config)
 			local options = opts.Options or {}
 			local multi = opts.MultipleOptions or false
 			local searchable = opts.Searchable or false
+			-- Por defecto: los de selección simple se cierran al elegir, los
+			-- multi-selección se quedan abiertos (como antes). Se puede forzar
+			-- con opts.CloseOnSelect = true/false en cualquiera de los dos casos.
+			local closeOnSelect = opts.CloseOnSelect
+			if closeOnSelect == nil then closeOnSelect = not multi end
 			local selected = {}
 			if multi then
 				for _, v in ipairs(opts.CurrentOption or {}) do selected[v] = true end
@@ -1282,9 +1318,21 @@ function WeroUI:CreateWindow(config)
 				ZIndex = 13,
 			}, { corner(7), stroke(Theme.Stroke, 1) })
 
+			DisplayBtn.MouseEnter:Connect(function()
+				tween(DisplayBtn, { BackgroundColor3 = Theme.Stroke }, 0.12)
+			end)
+			DisplayBtn.MouseLeave:Connect(function()
+				tween(DisplayBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.12)
+			end)
+
+			-- Recorremos "options" (no "selected") para que el orden mostrado sea
+			-- estable y para que las selecciones que ya no existen (tras un Refresh)
+			-- no se queden "fantasma" en el texto.
 			local function currentText()
 				local list = {}
-				for k, v in pairs(selected) do if v then table.insert(list, k) end end
+				for _, optName in ipairs(options) do
+					if selected[optName] then table.insert(list, optName) end
+				end
 				if #list == 0 then return "Seleccionar..." end
 				return table.concat(list, ", ")
 			end
@@ -1304,27 +1352,25 @@ function WeroUI:CreateWindow(config)
 				BackgroundTransparency = 1,
 				ZIndex = 14,
 			})
-			chevronIcon(ArrowHolder, Theme.SubText, 9, "down")
+			local Arrow = chevronIcon(ArrowHolder, Theme.SubText, 9, "down")
 
-			local OPTION_H = 26
-			local OPTION_GAP = 2
+			local OPTION_H = 27
+			local OPTION_GAP = 4
 			local OPTION_PAD = 8
-			local MAX_VISIBLE_OPTIONS = 5
-			local SEARCH_H = searchable and 30 or 0
-
-			local function listHeight()
-				local n = math.min(#options, MAX_VISIBLE_OPTIONS)
-				return SEARCH_H + OPTION_PAD + n * OPTION_H + math.max(n - 1, 0) * OPTION_GAP
-			end
+			-- Cuántas opciones se ven sin necesidad de hacer scroll. Con más
+			-- opciones que esto, la lista se vuelve scrolleable automáticamente.
+			local MAX_VISIBLE_OPTIONS = opts.MaxVisibleOptions or 5
+			local SEARCH_H = searchable and 34 or 0
+			local EMPTY_H = 26
 
 			local ListFrame = create("Frame", {
 				Parent = DropdownOverlay,
-				Size = UDim2.new(0, 150, 0, listHeight()),
+				Size = UDim2.new(0, 150, 0, SEARCH_H + OPTION_PAD),
 				BackgroundColor3 = Theme.ElevatedLight,
 				BorderSizePixel = 0,
 				Visible = false,
-				ZIndex = 300,
 				ClipsDescendants = true,
+				ZIndex = 300,
 			}, { corner(8), stroke(Theme.Stroke, 1) })
 
 			local SearchBox
@@ -1332,7 +1378,7 @@ function WeroUI:CreateWindow(config)
 				SearchBox = create("TextBox", {
 					Parent = ListFrame,
 					Position = UDim2.fromOffset(4, 4),
-					Size = UDim2.new(1, -8, 0, 24),
+					Size = UDim2.new(1, -8, 0, 26),
 					BackgroundColor3 = Theme.Elevated,
 					PlaceholderText = "Buscar...",
 					PlaceholderColor3 = Theme.SubText,
@@ -1345,6 +1391,16 @@ function WeroUI:CreateWindow(config)
 				}, { corner(6), pad(0, 0, 8, 8) })
 			end
 
+			-- IMPORTANTE: este ScrollingFrame es el que permite hacer scroll
+			-- cuando hay más opciones de las que caben. AutomaticCanvasSize ya
+			-- calcula bien el área scrolleable en base al contenido real; el bug
+			-- original era que el ListFrame (el contenedor visible de afuera)
+			-- tenía una altura FIJA calculada una sola vez al crear el dropdown,
+			-- así que si luego cambiaban las opciones (Refresh) o se filtraba con
+			-- la búsqueda, el área visible se quedaba con el tamaño viejo (a
+			-- veces minúsculo) aunque por dentro sí hubiera más opciones para
+			-- scrollear. Ahora resizeList() recalcula y anima esa altura cada
+			-- vez que cambia la cantidad de opciones visibles.
 			local OptionsScroll = create("ScrollingFrame", {
 				Parent = ListFrame,
 				Position = UDim2.fromOffset(0, SEARCH_H),
@@ -1353,10 +1409,24 @@ function WeroUI:CreateWindow(config)
 				AutomaticCanvasSize = Enum.AutomaticSize.Y,
 				ScrollBarThickness = 3,
 				ScrollBarImageColor3 = Theme.Accent,
+				ScrollBarImageTransparency = 0.2,
+				ElasticBehavior = Enum.ElasticBehavior.Never,
 				BackgroundTransparency = 1,
 				BorderSizePixel = 0,
 				ZIndex = 301,
 			}, { pad(4, 4, 4, 4), listLayout(Enum.FillDirection.Vertical, OPTION_GAP) })
+
+			local EmptyLabel = create("TextLabel", {
+				Parent = OptionsScroll,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, EMPTY_H),
+				Text = "Sin opciones",
+				Font = Theme.Font,
+				TextSize = 12,
+				TextColor3 = Theme.SubText,
+				Visible = false,
+				ZIndex = 302,
+			})
 
 			local Backdrop = create("TextButton", {
 				Parent = DropdownOverlay,
@@ -1367,9 +1437,26 @@ function WeroUI:CreateWindow(config)
 				ZIndex = 299,
 			})
 
+			local function resizeList(shownCount, animate)
+				local height
+				if shownCount <= 0 then
+					height = SEARCH_H + OPTION_PAD + EMPTY_H
+				else
+					local visible = math.min(shownCount, MAX_VISIBLE_OPTIONS)
+					height = SEARCH_H + OPTION_PAD + visible * OPTION_H + math.max(visible - 1, 0) * OPTION_GAP
+				end
+				local target = UDim2.new(0, 150, 0, height)
+				if animate and ListFrame.Visible then
+					tween(ListFrame, { Size = target }, 0.16, Enum.EasingStyle.Quart)
+				else
+					ListFrame.Size = target
+				end
+			end
+
 			local function hideList()
 				ListFrame.Visible = false
 				Backdrop.Visible = false
+				tween(Arrow, { Rotation = 0 }, 0.16)
 				if openDropdown and openDropdown.list == ListFrame then openDropdown = nil end
 			end
 			Backdrop.MouseButton1Click:Connect(hideList)
@@ -1378,17 +1465,28 @@ function WeroUI:CreateWindow(config)
 				closeOpenDropdown()
 				openDropdown = { list = ListFrame, backdrop = Backdrop }
 
+				local targetSize = ListFrame.Size
+				local h = targetSize.Y.Offset
+
 				local btnAbs = DisplayBtn.AbsolutePosition
 				local overAbs = DropdownOverlay.AbsolutePosition
 				local x = btnAbs.X - overAbs.X
 				local y = btnAbs.Y + DisplayBtn.AbsoluteSize.Y + 6 - overAbs.Y
-				local h = ListFrame.AbsoluteSize.Y
+				local opensUp = false
 				if y + h > DropdownOverlay.AbsoluteSize.Y then
 					y = btnAbs.Y - h - 6 - overAbs.Y
+					opensUp = true
 				end
-				ListFrame.Position = UDim2.fromOffset(x, y)
+
+				ListFrame.Position = UDim2.fromOffset(x, opensUp and (y + h) or y)
+				ListFrame.Size = UDim2.new(targetSize.X.Scale, targetSize.X.Offset, 0, 0)
 				ListFrame.Visible = true
 				Backdrop.Visible = true
+				tween(Arrow, { Rotation = 180 }, 0.16)
+				tween(ListFrame, { Size = targetSize }, 0.18, Enum.EasingStyle.Quart)
+				if opensUp then
+					tween(ListFrame, { Position = UDim2.fromOffset(x, y) }, 0.18, Enum.EasingStyle.Quart)
+				end
 				if SearchBox then
 					SearchBox.Text = ""
 					task.defer(function() SearchBox:CaptureFocus() end)
@@ -1408,16 +1506,51 @@ function WeroUI:CreateWindow(config)
 						local isSelected = selected[optName] and true or false
 						local OptBtn = create("TextButton", {
 							Parent = OptionsScroll,
-							Size = UDim2.new(1, 0, 0, 26),
+							Size = UDim2.new(1, 0, 0, OPTION_H),
 							BackgroundColor3 = isSelected and Theme.Accent or Theme.Elevated,
-							BackgroundTransparency = isSelected and 0.5 or 1,
-							Text = optName,
-							TextColor3 = Theme.Text,
-							Font = Theme.Font,
-							TextSize = 12,
+							BackgroundTransparency = isSelected and 0.55 or 1,
+							Text = "",
 							AutoButtonColor = false,
 							ZIndex = 302,
 						}, { corner(6) })
+
+						create("TextLabel", {
+							Parent = OptBtn,
+							BackgroundTransparency = 1,
+							Size = UDim2.new(1, isSelected and -26 or -12, 1, 0),
+							Position = UDim2.fromOffset(8, 0),
+							Text = optName,
+							Font = Theme.Font,
+							TextSize = 12,
+							TextColor3 = isSelected and Theme.AccentLight or Theme.Text,
+							TextXAlignment = Enum.TextXAlignment.Left,
+							TextTruncate = Enum.TextTruncate.AtEnd,
+							ZIndex = 303,
+						})
+
+						if isSelected then
+							local CheckHolder = create("Frame", {
+								Parent = OptBtn,
+								AnchorPoint = Vector2.new(1, 0.5),
+								Position = UDim2.new(1, -8, 0.5, 0),
+								Size = UDim2.fromOffset(10, 10),
+								BackgroundTransparency = 1,
+								ZIndex = 303,
+							})
+							checkIcon(CheckHolder, Theme.AccentLight, 10)
+						end
+
+						OptBtn.MouseEnter:Connect(function()
+							if not isSelected then
+								tween(OptBtn, { BackgroundTransparency = 0.75 }, 0.12)
+							end
+						end)
+						OptBtn.MouseLeave:Connect(function()
+							if not isSelected then
+								tween(OptBtn, { BackgroundTransparency = 1 }, 0.12)
+							end
+						end)
+
 						OptBtn.MouseButton1Click:Connect(function()
 							if multi then
 								selected[optName] = not selected[optName]
@@ -1425,8 +1558,8 @@ function WeroUI:CreateWindow(config)
 							else
 								selected = { [optName] = true }
 								api.Value = optName
-								hideList()
 							end
+							if closeOnSelect then hideList() end
 							DisplayLabel.Text = currentText()
 							refreshOptions(SearchBox and SearchBox.Text or nil)
 							local ok, err = pcall(opts.Callback or function() end, api.Value)
@@ -1435,9 +1568,12 @@ function WeroUI:CreateWindow(config)
 						end)
 					end
 				end
+				EmptyLabel.Text = (#options == 0) and "Sin opciones" or "Sin resultados"
+				EmptyLabel.Visible = (shown == 0)
+				resizeList(shown, true)
 				return shown
 			end
-			refreshOptions()
+			refreshOptions() -- ya deja ListFrame con el tamaño correcto (sin animar, porque aún no es visible)
 
 			if SearchBox then
 				SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
@@ -1454,7 +1590,20 @@ function WeroUI:CreateWindow(config)
 			end)
 
 			function api:Refresh(newOptions)
-				options = newOptions
+				options = newOptions or {}
+				-- Limpiamos selecciones que ya no existen en la nueva lista para
+				-- que no queden seleccionadas "a ciegas" opciones eliminadas.
+				if multi then
+					for k in pairs(selected) do
+						if not table.find(options, k) then selected[k] = nil end
+					end
+				else
+					local current = next(selected)
+					if current and not table.find(options, current) then
+						selected = {}
+					end
+				end
+				DisplayLabel.Text = currentText()
 				refreshOptions(SearchBox and SearchBox.Text or nil)
 			end
 			api.Reload = api.Refresh
