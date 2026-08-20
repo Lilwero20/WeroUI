@@ -33,6 +33,8 @@ local Theme = {
 	CardRadius      = 10,
 }
 
+-- Presets de color listos para usar con WeroUI:UsePreset("Nombre").
+-- Solo tocan los campos de color del tema; tipografía y radios quedan igual.
 local ThemePresets = {
 	Blue = {
 		Background = Color3.fromRGB(7, 11, 19), Elevated = Color3.fromRGB(17, 27, 42),
@@ -702,8 +704,9 @@ function WeroUI:CreateWindow(config)
 		ZIndex = 11,
 	})
 
+	local ResizeGrip = nil
 	if Resizable then
-		local ResizeGrip = create("Frame", {
+		ResizeGrip = create("Frame", {
 			Parent = Main,
 			AnchorPoint = Vector2.new(1, 1),
 			Position = UDim2.new(1, -3, 1, -3),
@@ -719,6 +722,11 @@ function WeroUI:CreateWindow(config)
 			Text = "",
 			ZIndex = 31,
 		})
+		-- El grip queda pegado a la esquina de Main pase lo que pase, así
+		-- que si la ventana está minimizada (Main achicado a 52px) seguía
+		-- siendo arrastrable ahí mismo y forzaba a Main a un tamaño entre
+		-- MinSize/MaxSize sin importar el estado minimizado, dejando todo
+		-- desincronizado (ver Window:SetMinimized, que ahora lo oculta).
 		makeResizable(GripBtn, Main, MinSize, MaxSize, function(newSize)
 			WindowSize = UDim2.new(WindowSize.X.Scale, newSize.X.Offset, WindowSize.Y.Scale, newSize.Y.Offset)
 		end, Window._connections)
