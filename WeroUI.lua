@@ -5,11 +5,13 @@ local CoreGui = game:GetService("CoreGui")
 local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 local TextService = game:GetService("TextService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 
 local Global = (getgenv and getgenv()) or _G
 Global.WeroUIInstances = Global.WeroUIInstances or {}
+
 local Theme = {
 	Background      = Color3.fromRGB(7, 11, 19),
 	Elevated        = Color3.fromRGB(17, 27, 42),
@@ -21,11 +23,16 @@ local Theme = {
 	Text            = Color3.fromRGB(250, 252, 255),
 	SubText         = Color3.fromRGB(176, 194, 212),
 	Success         = Color3.fromRGB(97, 219, 138),
+	Warning         = Color3.fromRGB(255, 196, 87),
 	Error           = Color3.fromRGB(255, 96, 96),
+	Info            = Color3.fromRGB(132, 208, 252),
 	Font            = Enum.Font.GothamMedium,
 	FontBold        = Enum.Font.GothamBold,
 	FontSemibold    = Enum.Font.GothamSemibold,
+	CornerRadius    = 24,
+	CardRadius      = 10,
 }
+
 local function tween(obj, props, time, style, dir)
 	local t = TweenService:Create(
 		obj,
@@ -87,7 +94,6 @@ local function listLayout(direction, gap, alignment)
 end
 
 local function resolveIcon(icon)
-
 	if not icon or icon == 0 or icon == "" then return nil end
 	if typeof(icon) == "number" then
 		return "rbxassetid://" .. tostring(icon)
@@ -116,52 +122,218 @@ local function getGuiParent()
 	return CoreGui
 end
 
-local function makeDraggable(dragHandle, target, onStart, onMoved)
-	local dragging, dragInput, dragStart, startAbs, moved
+local ROTATIONS = { down = 0, up = 180, right = -90, left = 90 }
 
-	dragHandle.InputBegan:Connect(function(input)
+local function chevronIcon(parent, color, size, direction)
+	size = size or 8
+	local holder = create("Frame", {
+		Parent = parent,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		Rotation = ROTATIONS[direction] or 0,
+		ZIndex = 14,
+	})
+	create("Frame", {
+		Parent = holder,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(size * 0.62, 2),
+		Position = UDim2.new(0.28, 0, 0.5, 0),
+		Rotation = 45,
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(1) })
+	create("Frame", {
+		Parent = holder,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(size * 0.62, 2),
+		Position = UDim2.new(0.72, 0, 0.5, 0),
+		Rotation = -45,
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(1) })
+	return holder
+end
+
+local function xIcon(parent, color, size)
+	size = size or 12
+	local holder = create("Frame", {
+		Parent = parent,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		ZIndex = 14,
+	})
+	create("Frame", {
+		Parent = holder,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(1, 0, 0, 2),
+		Rotation = 45,
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(1) })
+	create("Frame", {
+		Parent = holder,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(1, 0, 0, 2),
+		Rotation = -45,
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(1) })
+	return holder
+end
+
+local function minmaxIcon(parent, color, size, isPlus)
+	size = size or 12
+	local holder = create("Frame", {
+		Parent = parent,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		ZIndex = 14,
+	})
+	create("Frame", {
+		Parent = holder,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(1, 0, 0, 2),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+	}, { corner(1) })
+	if isPlus then
+		create("Frame", {
+			Parent = holder,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+			Size = UDim2.new(0, 2, 1, 0),
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+		}, { corner(1) })
+	end
+	return holder
+end
+
+local function getViewportSize()
+	local camera = workspace.CurrentCamera
+	if camera then
+		return camera.ViewportSize
+	end
+	return GuiService:GetScreenResolution()
+end
+
+local function makeDraggable(dragHandle, target, onStart, onMoved, connBag, clampToScreen)
+	local dragging, dragInput, dragStart, startPos, moved
+
+	local function track(conn)
+		if connBag then table.insert(connBag, conn) end
+		return conn
+	end
+
+	track(dragHandle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			moved = false
-			if onStart then onStart() end
 			dragStart = input.Position
-			startAbs = target.AbsolutePosition
-			input.Changed:Connect(function()
+			startPos = target.Position
+			if onStart then onStart() end
+			local endConn
+			endConn = input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
 					dragging = false
+					if endConn then endConn:Disconnect() end
 				end
 			end)
 		end
-	end)
+	end))
 
-	dragHandle.InputChanged:Connect(function(input)
+	track(dragHandle.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 			dragInput = input
 		end
-	end)
+	end))
 
-	UserInputService.InputChanged:Connect(function(input)
-		if input == dragInput and dragging then
-			local delta = input.Position - dragStart
-			if delta.Magnitude > 6 and not moved then
-				moved = true
-				if onMoved then onMoved() end
-			end
-			local desired = startAbs + (typeof(delta) == "Vector3" and Vector2.new(delta.X, delta.Y) or delta)
-			local size = target.AbsoluteSize
-			local res = GuiService:GetScreenResolution()
-			local ax, ay = target.AnchorPoint.X, target.AnchorPoint.Y
-			local clamped = Vector2.new(
-				math.clamp(desired.X, 0, math.max(res.X - size.X, 0)),
-				math.clamp(desired.Y, 0, math.max(res.Y - size.Y, 0))
-			)
-			target.Position = UDim2.new(0, clamped.X + ax * size.X, 0, clamped.Y + ay * size.Y)
+	track(UserInputService.InputChanged:Connect(function(input)
+		if input ~= dragInput or not dragging then return end
+		local rawDelta = input.Position - dragStart
+		local delta = typeof(rawDelta) == "Vector3" and Vector2.new(rawDelta.X, rawDelta.Y) or rawDelta
+		if delta.Magnitude > 4 and not moved then
+			moved = true
+			if onMoved then onMoved() end
 		end
-	end)
+		target.Position = UDim2.new(
+			startPos.X.Scale, startPos.X.Offset + delta.X,
+			startPos.Y.Scale, startPos.Y.Offset + delta.Y
+		)
+		if clampToScreen ~= false then
+			local viewport = getViewportSize()
+			local absPos = target.AbsolutePosition
+			local absSize = target.AbsoluteSize
+			local ax, ay = target.AnchorPoint.X, target.AnchorPoint.Y
+			local minX, maxX = -ax * absSize.X, viewport.X - absSize.X * (1 - ax)
+			local minY, maxY = -ay * absSize.Y, viewport.Y - absSize.Y * (1 - ay)
+			local clampedX = math.clamp(absPos.X, minX, maxX)
+			local clampedY = math.clamp(absPos.Y, minY, maxY)
+			local correctionX = clampedX - absPos.X
+			local correctionY = clampedY - absPos.Y
+			if correctionX ~= 0 or correctionY ~= 0 then
+				target.Position = UDim2.new(
+					target.Position.X.Scale, target.Position.X.Offset + correctionX,
+					target.Position.Y.Scale, target.Position.Y.Offset + correctionY
+				)
+			end
+		end
+	end))
 end
+
+local function makeResizable(grip, target, minSize, maxSize, onResized, connBag)
+	local resizing, dragStart, startSize
+
+	local function track(conn)
+		if connBag then table.insert(connBag, conn) end
+		return conn
+	end
+
+	track(grip.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			resizing = true
+			dragStart = input.Position
+			startSize = target.Size
+			local endConn
+			endConn = input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					resizing = false
+					if endConn then endConn:Disconnect() end
+					if onResized then onResized(target.Size) end
+				end
+			end)
+		end
+	end))
+
+	track(UserInputService.InputChanged:Connect(function(input)
+		if not resizing then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+		local rawDelta = input.Position - dragStart
+		local delta = typeof(rawDelta) == "Vector3" and Vector2.new(rawDelta.X, rawDelta.Y) or rawDelta
+		local newW = math.clamp(startSize.X.Offset + delta.X, minSize.X, maxSize.X)
+		local newH = math.clamp(startSize.Y.Offset + delta.Y, minSize.Y, maxSize.Y)
+		target.Size = UDim2.new(startSize.X.Scale, newW, startSize.Y.Scale, newH)
+	end))
+end
+
 local WeroUI = {}
 WeroUI.__index = WeroUI
 WeroUI.Theme = Theme
+
+function WeroUI:SetTheme(patch)
+	for k, v in pairs(patch or {}) do
+		Theme[k] = v
+	end
+end
 
 function WeroUI:CreateWindow(config)
 	config = config or {}
@@ -169,11 +341,18 @@ function WeroUI:CreateWindow(config)
 		pcall(function() win:Destroy() end)
 	end
 	Global.WeroUIInstances = {}
+
 	local WindowName        = config.Name or "Wero UI"
 	local Subtitle          = config.Subtitle or config.LoadingSubtitle or ""
 	local WindowIcon        = resolveIcon(config.Icon)
 	local ToggleKeybind     = config.ToggleKeybind or Enum.KeyCode.LeftControl
 	local WindowSize        = config.Size or UDim2.fromOffset(560, 380)
+	local Resizable         = config.Resizable ~= false
+	local MinSize           = config.MinSize or Vector2.new(420, 280)
+	local MaxSize           = config.MaxSize or Vector2.new(900, 700)
+	local ConfigSaving      = config.ConfigurationSaving or {}
+	local ConfigFileName    = ConfigSaving.FileName or WindowName:gsub("%s", "_")
+	local ConfigFolder      = ConfigSaving.Folder or "WeroUI"
 
 	local Window = setmetatable({}, WeroUI)
 	Window.Tabs = {}
@@ -181,6 +360,8 @@ function WeroUI:CreateWindow(config)
 	Window.Open = true
 	Window._tabButtons = {}
 	Window._connections = {}
+	Window._flags = {}
+
 	local ScreenGui = create("ScreenGui", {
 		Name = "WeroUI_" .. WindowName:gsub("%s", ""),
 		ResetOnSpawn = false,
@@ -191,12 +372,39 @@ function WeroUI:CreateWindow(config)
 	ScreenGui.Parent = getGuiParent()
 	Window.ScreenGui = ScreenGui
 	table.insert(Global.WeroUIInstances, Window)
+
 	local DropdownOverlay = create("Frame", {
 		Parent = ScreenGui,
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		ZIndex = 200,
 	})
+
+	local Tooltip = create("TextLabel", {
+		Parent = ScreenGui,
+		AutomaticSize = Enum.AutomaticSize.XY,
+		BackgroundColor3 = Theme.Elevated,
+		Text = "",
+		TextColor3 = Theme.Text,
+		Font = Theme.Font,
+		TextSize = 12,
+		Visible = false,
+		ZIndex = 500,
+	}, { corner(6), stroke(Theme.Stroke, 1), pad(6, 6, 8, 8) })
+
+	local function attachTooltip(instance, text)
+		if not text or text == "" then return end
+		table.insert(Window._connections, instance.MouseEnter:Connect(function()
+			Tooltip.Text = text
+			Tooltip.Visible = true
+		end))
+		table.insert(Window._connections, instance.MouseLeave:Connect(function()
+			Tooltip.Visible = false
+		end))
+		table.insert(Window._connections, instance.MouseMoved:Connect(function(x, y)
+			Tooltip.Position = UDim2.fromOffset(x + 16, y + 16)
+		end))
+	end
 
 	local openDropdown = nil
 	local function closeOpenDropdown()
@@ -206,6 +414,7 @@ function WeroUI:CreateWindow(config)
 			openDropdown = nil
 		end
 	end
+
 	local FloatIcon = create("ImageButton", {
 		Name = "FloatIcon",
 		Parent = ScreenGui,
@@ -243,11 +452,14 @@ function WeroUI:CreateWindow(config)
 			TextSize = 20,
 		})
 	end
+
 	local iconMoved = false
 	makeDraggable(FloatIcon, FloatIcon,
 		function() iconMoved = false end,
-		function() iconMoved = true end
+		function() iconMoved = true end,
+		Window._connections
 	)
+
 	local Main = create("Frame", {
 		Name = "Main",
 		Parent = ScreenGui,
@@ -258,7 +470,7 @@ function WeroUI:CreateWindow(config)
 		ClipsDescendants = true,
 		ZIndex = 10,
 	}, {
-		corner(24),
+		corner(Theme.CornerRadius),
 		stroke(Theme.Stroke, 1),
 	})
 
@@ -268,13 +480,14 @@ function WeroUI:CreateWindow(config)
 		Thickness = 1,
 		Transparency = 0.85,
 	})
+
 	local TopBar = create("Frame", {
 		Name = "TopBar",
 		Parent = Main,
 		Size = UDim2.new(1, 0, 0, 52),
 		BackgroundColor3 = Theme.Elevated,
 		ZIndex = 11,
-	}, { corner(24) })
+	}, { corner(Theme.CornerRadius) })
 
 	local TopBarMask = create("Frame", {
 		Parent = TopBar,
@@ -343,13 +556,13 @@ function WeroUI:CreateWindow(config)
 		Position = UDim2.new(1, -48, 0.5, 0),
 		Size = UDim2.fromOffset(26, 26),
 		BackgroundColor3 = Theme.ElevatedLight,
-		Text = "–",
-		TextColor3 = Theme.SubText,
-		Font = Theme.FontBold,
-		TextSize = 18,
+		Text = "",
 		AutoButtonColor = false,
 		ZIndex = 12,
 	}, { corner(8) })
+	local MinBtnMinus = minmaxIcon(MinBtn, Theme.SubText, 12, false)
+	local MinBtnPlus = minmaxIcon(MinBtn, Theme.SubText, 12, true)
+	MinBtnPlus.Visible = false
 
 	local CloseBtn = create("TextButton", {
 		Parent = TopBar,
@@ -357,15 +570,14 @@ function WeroUI:CreateWindow(config)
 		Position = UDim2.new(1, -14, 0.5, 0),
 		Size = UDim2.fromOffset(26, 26),
 		BackgroundColor3 = Theme.ElevatedLight,
-		Text = "×",
-		TextColor3 = Theme.SubText,
-		Font = Theme.FontBold,
-		TextSize = 18,
+		Text = "",
 		AutoButtonColor = false,
 		ZIndex = 12,
 	}, { corner(8) })
+	xIcon(CloseBtn, Theme.SubText, 12)
 
-	makeDraggable(TopBar, Main, closeOpenDropdown)
+	makeDraggable(TopBar, Main, closeOpenDropdown, nil, Window._connections)
+
 	local Sidebar = create("Frame", {
 		Name = "Sidebar",
 		Parent = Main,
@@ -377,7 +589,7 @@ function WeroUI:CreateWindow(config)
 		create("UICorner", {
 			TopLeftRadius = UDim.new(0, 0),
 			TopRightRadius = UDim.new(0, 0),
-			BottomLeftRadius = UDim.new(0, 24),
+			BottomLeftRadius = UDim.new(0, Theme.CornerRadius),
 			BottomRightRadius = UDim.new(0, 0),
 		}),
 	})
@@ -398,13 +610,15 @@ function WeroUI:CreateWindow(config)
 		Size = UDim2.new(1, 0, 1, 0),
 		CanvasSize = UDim2.new(0, 0, 0, 0),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollBarThickness = 0,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = Theme.Accent,
 		BorderSizePixel = 0,
 		ZIndex = 11,
 	}, {
 		pad(10, 10, 10, 10),
 		listLayout(Enum.FillDirection.Vertical, 4),
 	})
+
 	local ContentArea = create("Frame", {
 		Name = "ContentArea",
 		Parent = Main,
@@ -413,6 +627,29 @@ function WeroUI:CreateWindow(config)
 		BackgroundTransparency = 1,
 		ZIndex = 11,
 	})
+
+	if Resizable then
+		local ResizeGrip = create("Frame", {
+			Parent = Main,
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -3, 1, -3),
+			Size = UDim2.fromOffset(18, 18),
+			BackgroundTransparency = 1,
+			ZIndex = 30,
+		})
+		chevronIcon(ResizeGrip, Theme.Stroke, 10, "left")
+		local GripBtn = create("TextButton", {
+			Parent = ResizeGrip,
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Text = "",
+			ZIndex = 31,
+		})
+		makeResizable(GripBtn, Main, MinSize, MaxSize, function(newSize)
+			WindowSize = UDim2.new(WindowSize.X.Scale, newSize.X.Offset, WindowSize.Y.Scale, newSize.Y.Offset)
+		end, Window._connections)
+	end
+
 	local NotifyHolder = create("Frame", {
 		Parent = ScreenGui,
 		AnchorPoint = Vector2.new(1, 1),
@@ -426,11 +663,19 @@ function WeroUI:CreateWindow(config)
 	local nl = NotifyHolder:FindFirstChildOfClass("UIListLayout")
 	nl.VerticalAlignment = Enum.VerticalAlignment.Bottom
 
+	local NOTIFY_COLORS = {
+		Success = Theme.Success,
+		Error = Theme.Error,
+		Warning = Theme.Warning,
+		Info = Theme.Info,
+	}
+
 	function Window:Notify(opts)
 		opts = opts or {}
 		local title = opts.Title or "Notificación"
 		local content = opts.Content or ""
 		local duration = opts.Duration or 4
+		local accentColor = NOTIFY_COLORS[opts.Type] or Theme.AccentLight
 
 		local Card = create("Frame", {
 			Parent = NotifyHolder,
@@ -439,16 +684,24 @@ function WeroUI:CreateWindow(config)
 			BackgroundColor3 = Theme.Elevated,
 			BackgroundTransparency = 0,
 			ZIndex = 100,
+			ClipsDescendants = true,
 		}, {
 			corner(10),
 			stroke(Theme.Stroke, 1),
-			pad(10, 10, 12, 12),
+			pad(10, 10, 12, 16),
 			listLayout(Enum.FillDirection.Vertical, 2),
+		})
+		create("Frame", {
+			Parent = Card,
+			Size = UDim2.new(0, 3, 1, 0),
+			BackgroundColor3 = accentColor,
+			BorderSizePixel = 0,
+			ZIndex = 101,
 		})
 		create("TextLabel", {
 			Parent = Card, LayoutOrder = 1, BackgroundTransparency = 1,
 			Size = UDim2.new(1, 0, 0, 18), Text = title,
-			Font = Theme.FontBold, TextSize = 13, TextColor3 = Theme.AccentLight,
+			Font = Theme.FontBold, TextSize = 13, TextColor3 = accentColor,
 			TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 101,
 		})
 		create("TextLabel", {
@@ -476,9 +729,11 @@ function WeroUI:CreateWindow(config)
 			Card:Destroy()
 		end)
 	end
+
 	Main.Visible = true
 	Window.Minimized = false
 	local MINIMIZED_HEIGHT = 52
+
 	function Window:SetOpen(state)
 		Window.Open = state
 		if state then
@@ -505,7 +760,8 @@ function WeroUI:CreateWindow(config)
 		Window.Minimized = state
 		closeOpenDropdown()
 		TopBarMask.Visible = not state
-		MinBtn.Text = state and "+" or "–"
+		MinBtnMinus.Visible = not state
+		MinBtnPlus.Visible = state
 		if state then
 			Main.Size = WindowSize
 			tween(Main, { Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, MINIMIZED_HEIGHT) }, 0.2)
@@ -519,11 +775,57 @@ function WeroUI:CreateWindow(config)
 		Window:SetOpen(not Window.Open)
 	end
 
+	function Window:SetAccentColor(color)
+		Theme.Accent = color
+		Theme.AccentLight = Color3.new(
+			math.min(color.R + 0.4, 1),
+			math.min(color.G + 0.4, 1),
+			math.min(color.B + 0.4, 1)
+		)
+		Theme.AccentDark = Color3.new(color.R * 0.55, color.G * 0.55, color.B * 0.55)
+	end
+
+	function Window:SaveConfig()
+		if not (writefile and isfile) then return false end
+		local ok = pcall(function()
+			if makefolder and not (isfolder and isfolder(ConfigFolder)) then
+				makefolder(ConfigFolder)
+			end
+		end)
+		local data = {}
+		for flag, api in pairs(Window._flags) do
+			data[flag] = api.Value
+		end
+		local ok2, encoded = pcall(function() return HttpService:JSONEncode(data) end)
+		if not ok2 then return false end
+		local path = ConfigFolder .. "/" .. ConfigFileName .. ".json"
+		local ok3 = pcall(writefile, path, encoded)
+		return ok3
+	end
+
+	function Window:LoadConfig()
+		if not (readfile and isfile) then return false end
+		local path = ConfigFolder .. "/" .. ConfigFileName .. ".json"
+		local ok, exists = pcall(isfile, path)
+		if not ok or not exists then return false end
+		local ok2, raw = pcall(readfile, path)
+		if not ok2 then return false end
+		local ok3, data = pcall(function() return HttpService:JSONDecode(raw) end)
+		if not ok3 or typeof(data) ~= "table" then return false end
+		for flag, value in pairs(data) do
+			local api = Window._flags[flag]
+			if api and api.Set then
+				pcall(api.Set, api, value)
+			end
+		end
+		return true
+	end
+
 	CloseBtn.MouseButton1Click:Connect(function()
 		Window:SetOpen(false)
 	end)
-	CloseBtn.MouseEnter:Connect(function() tween(CloseBtn, {BackgroundColor3 = Theme.Error}, 0.15) end)
-	CloseBtn.MouseLeave:Connect(function() tween(CloseBtn, {BackgroundColor3 = Theme.ElevatedLight}, 0.15) end)
+	CloseBtn.MouseEnter:Connect(function() tween(CloseBtn, { BackgroundColor3 = Theme.Error }, 0.15) end)
+	CloseBtn.MouseLeave:Connect(function() tween(CloseBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.15) end)
 
 	MinBtn.MouseButton1Click:Connect(function()
 		Window:SetMinimized(not Window.Minimized)
@@ -535,8 +837,8 @@ function WeroUI:CreateWindow(config)
 		if iconMoved then return end
 		Window:Toggle()
 	end)
-	FloatIcon.MouseEnter:Connect(function() tween(FloatIcon, {BackgroundColor3 = Theme.ElevatedLight}, 0.15) end)
-	FloatIcon.MouseLeave:Connect(function() tween(FloatIcon, {BackgroundColor3 = Theme.Elevated}, 0.15) end)
+	FloatIcon.MouseEnter:Connect(function() tween(FloatIcon, { BackgroundColor3 = Theme.ElevatedLight }, 0.15) end)
+	FloatIcon.MouseLeave:Connect(function() tween(FloatIcon, { BackgroundColor3 = Theme.Elevated }, 0.15) end)
 
 	function Window:SetToggleKeybind(keycode)
 		Window.ToggleKeybind = keycode
@@ -548,6 +850,7 @@ function WeroUI:CreateWindow(config)
 			Window:Toggle()
 		end
 	end))
+
 	function Window:CreateTab(name, icon)
 		icon = resolveIcon(icon)
 		local isFirst = #Window.Tabs == 0
@@ -622,6 +925,7 @@ function WeroUI:CreateWindow(config)
 			end
 		end
 		TabButton.MouseButton1Click:Connect(selectTab)
+
 		local function baseCard(height)
 			return create("Frame", {
 				Parent = Page,
@@ -629,7 +933,7 @@ function WeroUI:CreateWindow(config)
 				AutomaticSize = height and Enum.AutomaticSize.None or Enum.AutomaticSize.Y,
 				BackgroundColor3 = Theme.Elevated,
 				ZIndex = 12,
-			}, { corner(10), stroke(Theme.Stroke, 1), pad(10, 10, 12, 12) })
+			}, { corner(Theme.CardRadius), stroke(Theme.Stroke, 1), pad(10, 10, 12, 12) })
 		end
 
 		local function nameSub(parent, nameText, descText)
@@ -657,6 +961,19 @@ function WeroUI:CreateWindow(config)
 			end
 			return holder
 		end
+
+		local function registerFlag(opts, api)
+			if opts.Flag then
+				Window._flags[opts.Flag] = api
+			end
+		end
+
+		local function autosave()
+			if ConfigSaving.Enabled then
+				task.defer(function() Window:SaveConfig() end)
+			end
+		end
+
 		function Tab:CreateSection(text)
 			create("TextLabel", {
 				Parent = Page,
@@ -670,6 +987,7 @@ function WeroUI:CreateWindow(config)
 				ZIndex = 12,
 			})
 		end
+
 		function Tab:CreateLabel(text)
 			local card = baseCard(36)
 			create("TextLabel", {
@@ -681,6 +999,7 @@ function WeroUI:CreateWindow(config)
 			})
 			return card
 		end
+
 		function Tab:CreateParagraph(opts)
 			opts = opts or {}
 			local card = create("Frame", {
@@ -689,7 +1008,7 @@ function WeroUI:CreateWindow(config)
 				AutomaticSize = Enum.AutomaticSize.Y,
 				BackgroundColor3 = Theme.Elevated,
 				ZIndex = 12,
-			}, { corner(10), stroke(Theme.Stroke, 1), pad(10, 10, 12, 12), listLayout(Enum.FillDirection.Vertical, 4) })
+			}, { corner(Theme.CardRadius), stroke(Theme.Stroke, 1), pad(10, 10, 12, 12), listLayout(Enum.FillDirection.Vertical, 4) })
 
 			create("TextLabel", {
 				Parent = card, BackgroundTransparency = 1,
@@ -711,6 +1030,7 @@ function WeroUI:CreateWindow(config)
 			function api:Set(txt) api:SetDescription(txt) end
 			return api
 		end
+
 		function Tab:CreateDivider()
 			create("Frame", {
 				Parent = Page,
@@ -720,6 +1040,7 @@ function WeroUI:CreateWindow(config)
 				ZIndex = 12,
 			})
 		end
+
 		function Tab:CreateButton(opts)
 			opts = opts or {}
 			local card = baseCard(opts.Description and 50 or 40)
@@ -731,13 +1052,12 @@ function WeroUI:CreateWindow(config)
 				Position = UDim2.new(1, 0, 0.5, 0),
 				Size = UDim2.fromOffset(34, 26),
 				BackgroundColor3 = Theme.Accent,
-				Text = "▶",
-				TextColor3 = Color3.new(1, 1, 1),
-				Font = Theme.FontBold,
-				TextSize = 13,
+				Text = "",
 				AutoButtonColor = false,
 				ZIndex = 13,
 			}, { corner(7) })
+			chevronIcon(Btn, Color3.new(1, 1, 1), 10, "right")
+			attachTooltip(Btn, opts.Tooltip)
 
 			Btn.MouseButton1Click:Connect(function()
 				tween(Btn, { BackgroundColor3 = Theme.AccentDark }, 0.08)
@@ -748,11 +1068,13 @@ function WeroUI:CreateWindow(config)
 			end)
 			return { Instance = card }
 		end
+
 		function Tab:CreateToggle(opts)
 			opts = opts or {}
 			local state = opts.CurrentValue or false
 			local card = baseCard(opts.Description and 50 or 40)
 			nameSub(card, opts.Name or "Toggle", opts.Description)
+			attachTooltip(card, opts.Tooltip)
 
 			local Switch = create("Frame", {
 				Parent = card,
@@ -776,21 +1098,25 @@ function WeroUI:CreateWindow(config)
 				Parent = Switch, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 15,
 			})
 
-			local api = {}
+			local api = { Value = state }
 			function api:Set(value)
 				state = value
+				api.Value = value
 				tween(Switch, { BackgroundColor3 = state and Theme.Accent or Theme.ElevatedLight }, 0.15)
 				tween(Knob, { Position = state and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0) }, 0.15)
 				local ok, err = pcall(opts.Callback or function() end, state)
 				if not ok then warn("[WeroUI] Toggle callback error: " .. tostring(err)) end
+				autosave()
 			end
 
 			Click.MouseButton1Click:Connect(function() api:Set(not state) end)
+			registerFlag(opts, api)
 			if opts.CurrentValue then
 				task.defer(function() pcall(opts.Callback or function() end, state) end)
 			end
 			return api
 		end
+
 		function Tab:CreateSlider(opts)
 			opts = opts or {}
 			local min = (opts.Range and opts.Range[1]) or 0
@@ -799,6 +1125,7 @@ function WeroUI:CreateWindow(config)
 			local value = opts.CurrentValue or min
 
 			local card = baseCard(56)
+			attachTooltip(card, opts.Tooltip)
 			create("TextLabel", {
 				Parent = card, BackgroundTransparency = 1,
 				Size = UDim2.new(1, -50, 0, 18),
@@ -810,7 +1137,7 @@ function WeroUI:CreateWindow(config)
 				AnchorPoint = Vector2.new(1, 0),
 				Position = UDim2.new(1, 0, 0, 0),
 				Size = UDim2.fromOffset(50, 18),
-				Text = tostring(value), Font = Theme.FontSemibold, TextSize = 13,
+				Text = tostring(value) .. (opts.Suffix or ""), Font = Theme.FontSemibold, TextSize = 13,
 				TextColor3 = Theme.AccentLight, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 13,
 			})
 
@@ -852,35 +1179,87 @@ function WeroUI:CreateWindow(config)
 				local a = (raw - min) / math.max(max - min, 1e-6)
 				Fill.Size = UDim2.new(a, 0, 1, 0)
 				Grabber.Position = UDim2.new(a, 0, 0.5, 0)
-				ValueLabel.Text = tostring(raw)
+				ValueLabel.Text = tostring(raw) .. (opts.Suffix or "")
 				local ok, err = pcall(opts.Callback or function() end, raw)
 				if not ok then warn("[WeroUI] Slider callback error: " .. tostring(err)) end
+				autosave()
 			end
 
-			Track.InputBegan:Connect(function(input)
+			table.insert(Window._connections, Track.InputBegan:Connect(function(input)
 				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 					dragging = true
 					setFromAlpha((input.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X)
 				end
-			end)
-			UserInputService.InputEnded:Connect(function(input)
+			end))
+			table.insert(Window._connections, UserInputService.InputEnded:Connect(function(input)
 				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 					dragging = false
 				end
-			end)
-			UserInputService.InputChanged:Connect(function(input)
+			end))
+			table.insert(Window._connections, UserInputService.InputChanged:Connect(function(input)
 				if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 					setFromAlpha((input.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X)
 				end
-			end)
+			end))
 
 			function api:Set(v) setFromAlpha((v - min) / math.max(max - min, 1e-6)) end
+			registerFlag(opts, api)
 			return api
 		end
+
+		function Tab:CreateProgressBar(opts)
+			opts = opts or {}
+			local min = (opts.Range and opts.Range[1]) or 0
+			local max = (opts.Range and opts.Range[2]) or 100
+			local value = math.clamp(opts.CurrentValue or min, min, max)
+
+			local card = baseCard(48)
+			create("TextLabel", {
+				Parent = card, BackgroundTransparency = 1,
+				Size = UDim2.new(1, -50, 0, 18),
+				Text = opts.Name or "Progreso", Font = Theme.FontSemibold, TextSize = 13,
+				TextColor3 = Theme.Text, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13,
+			})
+			local ValueLabel = create("TextLabel", {
+				Parent = card, BackgroundTransparency = 1,
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, 0, 0, 0),
+				Size = UDim2.fromOffset(50, 18),
+				Text = "", Font = Theme.FontSemibold, TextSize = 12,
+				TextColor3 = Theme.AccentLight, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 13,
+			})
+			local Track = create("Frame", {
+				Parent = card,
+				Position = UDim2.new(0, 0, 0, 26),
+				Size = UDim2.new(1, 0, 0, 8),
+				BackgroundColor3 = Theme.ElevatedLight,
+				ZIndex = 13,
+			}, { corner(4) })
+			local Fill = create("Frame", {
+				Parent = Track,
+				Size = UDim2.new(0, 0, 1, 0),
+				BackgroundColor3 = Theme.Accent,
+				ZIndex = 14,
+			}, { corner(4) })
+			gradient(ColorSequence.new(Theme.AccentLight, Theme.Accent), 0).Parent = Fill
+
+			local api = { Value = value }
+			function api:Set(v)
+				v = math.clamp(v, min, max)
+				api.Value = v
+				local a = (v - min) / math.max(max - min, 1e-6)
+				tween(Fill, { Size = UDim2.new(a, 0, 1, 0) }, 0.2)
+				ValueLabel.Text = math.floor((v - min) / math.max(max - min, 1e-6) * 100) .. "%"
+			end
+			api:Set(value)
+			return api
+		end
+
 		function Tab:CreateDropdown(opts)
 			opts = opts or {}
 			local options = opts.Options or {}
 			local multi = opts.MultipleOptions or false
+			local searchable = opts.Searchable or false
 			local selected = {}
 			if multi then
 				for _, v in ipairs(opts.CurrentOption or {}) do selected[v] = true end
@@ -890,6 +1269,7 @@ function WeroUI:CreateWindow(config)
 
 			local card = baseCard(40)
 			nameSub(card, opts.Name or "Dropdown", nil)
+			attachTooltip(card, opts.Tooltip)
 
 			local DisplayBtn = create("TextButton", {
 				Parent = card,
@@ -911,41 +1291,72 @@ function WeroUI:CreateWindow(config)
 
 			local DisplayLabel = create("TextLabel", {
 				Parent = DisplayBtn, BackgroundTransparency = 1,
-				Size = UDim2.new(1, -24, 1, 0), Position = UDim2.fromOffset(8, 0),
+				Size = UDim2.new(1, -28, 1, 0), Position = UDim2.fromOffset(8, 0),
 				Text = currentText(), Font = Theme.Font, TextSize = 12,
 				TextColor3 = Theme.Text, TextXAlignment = Enum.TextXAlignment.Left,
 				TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 14,
 			})
-			create("TextLabel", {
-				Parent = DisplayBtn, BackgroundTransparency = 1,
-				AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0),
-				Size = UDim2.fromOffset(14, 14), Text = "▾", Font = Theme.FontBold,
-				TextSize = 12, TextColor3 = Theme.SubText, ZIndex = 14,
+			local ArrowHolder = create("Frame", {
+				Parent = DisplayBtn,
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -10, 0.5, 0),
+				Size = UDim2.fromOffset(14, 14),
+				BackgroundTransparency = 1,
+				ZIndex = 14,
 			})
+			chevronIcon(ArrowHolder, Theme.SubText, 9, "down")
 
 			local OPTION_H = 26
 			local OPTION_GAP = 2
 			local OPTION_PAD = 8
 			local MAX_VISIBLE_OPTIONS = 5
+			local SEARCH_H = searchable and 30 or 0
 
 			local function listHeight()
 				local n = math.min(#options, MAX_VISIBLE_OPTIONS)
-				return OPTION_PAD + n * OPTION_H + math.max(n - 1, 0) * OPTION_GAP
+				return SEARCH_H + OPTION_PAD + n * OPTION_H + math.max(n - 1, 0) * OPTION_GAP
 			end
 
-			local ListFrame = create("ScrollingFrame", {
+			local ListFrame = create("Frame", {
 				Parent = DropdownOverlay,
 				Size = UDim2.new(0, 150, 0, listHeight()),
-				CanvasSize = UDim2.new(0, 0, 0, 0),
-				AutomaticCanvasSize = Enum.AutomaticSize.Y,
-				ScrollBarThickness = 3,
-				ScrollBarImageColor3 = Theme.Accent,
 				BackgroundColor3 = Theme.ElevatedLight,
 				BorderSizePixel = 0,
 				Visible = false,
 				ZIndex = 300,
 				ClipsDescendants = true,
-			}, { corner(8), stroke(Theme.Stroke, 1), pad(4, 4, 4, 4), listLayout(Enum.FillDirection.Vertical, OPTION_GAP) })
+			}, { corner(8), stroke(Theme.Stroke, 1) })
+
+			local SearchBox
+			if searchable then
+				SearchBox = create("TextBox", {
+					Parent = ListFrame,
+					Position = UDim2.fromOffset(4, 4),
+					Size = UDim2.new(1, -8, 0, 24),
+					BackgroundColor3 = Theme.Elevated,
+					PlaceholderText = "Buscar...",
+					PlaceholderColor3 = Theme.SubText,
+					Text = "",
+					TextColor3 = Theme.Text,
+					Font = Theme.Font,
+					TextSize = 12,
+					ClearTextOnFocus = false,
+					ZIndex = 302,
+				}, { corner(6), pad(0, 0, 8, 8) })
+			end
+
+			local OptionsScroll = create("ScrollingFrame", {
+				Parent = ListFrame,
+				Position = UDim2.fromOffset(0, SEARCH_H),
+				Size = UDim2.new(1, 0, 1, -SEARCH_H),
+				CanvasSize = UDim2.new(0, 0, 0, 0),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				ScrollBarThickness = 3,
+				ScrollBarImageColor3 = Theme.Accent,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ZIndex = 301,
+			}, { pad(4, 4, 4, 4), listLayout(Enum.FillDirection.Vertical, OPTION_GAP) })
 
 			local Backdrop = create("TextButton", {
 				Parent = DropdownOverlay,
@@ -978,47 +1389,61 @@ function WeroUI:CreateWindow(config)
 				ListFrame.Position = UDim2.fromOffset(x, y)
 				ListFrame.Visible = true
 				Backdrop.Visible = true
+				if SearchBox then
+					SearchBox.Text = ""
+					task.defer(function() SearchBox:CaptureFocus() end)
+				end
 			end
 
 			local api = { Value = multi and selected or (opts.CurrentOption or options[1] or "") }
 
-			local function refreshOptions()
-				for _, c in ipairs(ListFrame:GetChildren()) do
+			local function refreshOptions(filter)
+				for _, c in ipairs(OptionsScroll:GetChildren()) do
 					if c:IsA("TextButton") then c:Destroy() end
 				end
+				local shown = 0
 				for _, optName in ipairs(options) do
-					local isSelected = selected[optName] and true or false
-					local OptBtn = create("TextButton", {
-						Parent = ListFrame,
-						Size = UDim2.new(1, 0, 0, 26),
-						BackgroundColor3 = isSelected and Theme.Accent or Theme.Elevated,
-						BackgroundTransparency = isSelected and 0.5 or 1,
-						Text = optName,
-						TextColor3 = Theme.Text,
-						Font = Theme.Font,
-						TextSize = 12,
-						AutoButtonColor = false,
-						ZIndex = 31,
-					}, { corner(6) })
-					OptBtn.MouseButton1Click:Connect(function()
-						if multi then
-							selected[optName] = not selected[optName]
-							api.Value = selected
-						else
-							selected = { [optName] = true }
-							api.Value = optName
-							hideList()
-						end
-						DisplayLabel.Text = currentText()
-						refreshOptions()
-						local ok, err = pcall(opts.Callback or function() end, api.Value)
-						if not ok then warn("[WeroUI] Dropdown callback error: " .. tostring(err)) end
-					end)
+					if not filter or filter == "" or optName:lower():find(filter:lower(), 1, true) then
+						shown += 1
+						local isSelected = selected[optName] and true or false
+						local OptBtn = create("TextButton", {
+							Parent = OptionsScroll,
+							Size = UDim2.new(1, 0, 0, 26),
+							BackgroundColor3 = isSelected and Theme.Accent or Theme.Elevated,
+							BackgroundTransparency = isSelected and 0.5 or 1,
+							Text = optName,
+							TextColor3 = Theme.Text,
+							Font = Theme.Font,
+							TextSize = 12,
+							AutoButtonColor = false,
+							ZIndex = 302,
+						}, { corner(6) })
+						OptBtn.MouseButton1Click:Connect(function()
+							if multi then
+								selected[optName] = not selected[optName]
+								api.Value = selected
+							else
+								selected = { [optName] = true }
+								api.Value = optName
+								hideList()
+							end
+							DisplayLabel.Text = currentText()
+							refreshOptions(SearchBox and SearchBox.Text or nil)
+							local ok, err = pcall(opts.Callback or function() end, api.Value)
+							if not ok then warn("[WeroUI] Dropdown callback error: " .. tostring(err)) end
+							autosave()
+						end)
+					end
 				end
-				ListFrame.Size = UDim2.new(0, 150, 0, listHeight())
-				if ListFrame.Visible then showList() end
+				return shown
 			end
 			refreshOptions()
+
+			if SearchBox then
+				SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+					refreshOptions(SearchBox.Text)
+				end)
+			end
 
 			DisplayBtn.MouseButton1Click:Connect(function()
 				if ListFrame.Visible then
@@ -1030,7 +1455,7 @@ function WeroUI:CreateWindow(config)
 
 			function api:Refresh(newOptions)
 				options = newOptions
-				refreshOptions()
+				refreshOptions(SearchBox and SearchBox.Text or nil)
 			end
 			api.Reload = api.Refresh
 
@@ -1043,17 +1468,20 @@ function WeroUI:CreateWindow(config)
 				end
 				api.Value = multi and selected or optName
 				DisplayLabel.Text = currentText()
-				refreshOptions()
+				refreshOptions(SearchBox and SearchBox.Text or nil)
 				local ok, err = pcall(opts.Callback or function() end, api.Value)
 				if not ok then warn("[WeroUI] Dropdown Set callback error: " .. tostring(err)) end
 			end
 
+			registerFlag(opts, api)
 			return api
 		end
+
 		function Tab:CreateInput(opts)
 			opts = opts or {}
 			local card = baseCard(40)
 			nameSub(card, opts.Name or "Input", nil)
+			attachTooltip(card, opts.Tooltip)
 
 			local Box = create("TextBox", {
 				Parent = card,
@@ -1076,10 +1504,13 @@ function WeroUI:CreateWindow(config)
 				api.Value = Box.Text
 				local ok, err = pcall(opts.Callback or function() end, Box.Text, enterPressed)
 				if not ok then warn("[WeroUI] Input callback error: " .. tostring(err)) end
+				autosave()
 			end)
 			function api:Set(text) Box.Text = text; api.Value = text end
+			registerFlag(opts, api)
 			return api
 		end
+
 		function Tab:CreateKeybind(opts)
 			opts = opts or {}
 			local currentKey = opts.CurrentKeybind
@@ -1091,6 +1522,7 @@ function WeroUI:CreateWindow(config)
 
 			local card = baseCard(40)
 			nameSub(card, opts.Name or "Keybind", nil)
+			attachTooltip(card, opts.Tooltip)
 
 			local KeyBtn = create("TextButton", {
 				Parent = card,
@@ -1106,7 +1538,7 @@ function WeroUI:CreateWindow(config)
 				ZIndex = 13,
 			}, { corner(7), stroke(Theme.Stroke, 1) })
 
-			local api = { Value = currentKey }
+			local api = { Value = currentKey.Name }
 
 			KeyBtn.MouseButton1Click:Connect(function()
 				listening = true
@@ -1114,31 +1546,42 @@ function WeroUI:CreateWindow(config)
 				tween(KeyBtn, { BackgroundColor3 = Theme.Accent }, 0.15)
 			end)
 
-			UserInputService.InputBegan:Connect(function(input, processed)
+			table.insert(Window._connections, UserInputService.InputBegan:Connect(function(input, processed)
 				if processed then return end
 				if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 				if listening then
 					currentKey = input.KeyCode
-					api.Value = currentKey
+					api.Value = currentKey.Name
 					KeyBtn.Text = currentKey.Name
 					listening = false
 					tween(KeyBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.15)
 					local ok, err = pcall(opts.Callback or function() end, currentKey)
 					if not ok then warn("[WeroUI] Keybind callback error: " .. tostring(err)) end
+					autosave()
 				elseif input.KeyCode == currentKey then
 					local ok, err = pcall(opts.Callback or function() end, currentKey)
 					if not ok then warn("[WeroUI] Keybind press callback error: " .. tostring(err)) end
 				end
-			end)
+			end))
 
-			function api:Set(keycode) currentKey = keycode; api.Value = keycode; KeyBtn.Text = keycode.Name end
+			function api:Set(keycode)
+				if typeof(keycode) == "string" then
+					keycode = Enum.KeyCode[keycode] or currentKey
+				end
+				currentKey = keycode
+				api.Value = keycode.Name
+				KeyBtn.Text = keycode.Name
+			end
+			registerFlag(opts, api)
 			return api
 		end
+
 		function Tab:CreateColorPicker(opts)
 			opts = opts or {}
 			local color = opts.Color or Theme.Accent
 			local card = baseCard(40)
 			nameSub(card, opts.Name or "Color", nil)
+			attachTooltip(card, opts.Tooltip)
 
 			local Swatch = create("TextButton", {
 				Parent = card,
@@ -1153,11 +1596,23 @@ function WeroUI:CreateWindow(config)
 
 			local Popout = create("Frame", {
 				Parent = DropdownOverlay,
-				Size = UDim2.fromOffset(180, 130),
+				Size = UDim2.fromOffset(180, 150),
 				BackgroundColor3 = Theme.ElevatedLight,
 				Visible = false,
 				ZIndex = 300,
 			}, { corner(8), stroke(Theme.Stroke, 1), pad(10, 10, 10, 10), listLayout(Enum.FillDirection.Vertical, 6) })
+
+			local HexBox = create("TextBox", {
+				Parent = Popout,
+				Size = UDim2.new(1, 0, 0, 26),
+				BackgroundColor3 = Theme.Elevated,
+				Text = string.format("#%02X%02X%02X", color.R * 255, color.G * 255, color.B * 255),
+				TextColor3 = Theme.Text,
+				Font = Theme.FontSemibold,
+				TextSize = 12,
+				ClearTextOnFocus = false,
+				ZIndex = 301,
+			}, { corner(6), pad(0, 0, 8, 8) })
 
 			local PBackdrop = create("TextButton", {
 				Parent = DropdownOverlay,
@@ -1194,29 +1649,51 @@ function WeroUI:CreateWindow(config)
 			local api = { Value = color }
 			local channels = { "R", "G", "B" }
 			local rgb = { color.R * 255, color.G * 255, color.B * 255 }
+			local fills = {}
 
-			local function updateColor()
+			local function updateColor(skipHex)
 				local c = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
 				api.Value = c
 				Swatch.BackgroundColor3 = c
+				if not skipHex then
+					HexBox.Text = string.format("#%02X%02X%02X", rgb[1], rgb[2], rgb[3])
+				end
 				local ok, err = pcall(opts.Callback or function() end, c)
 				if not ok then warn("[WeroUI] ColorPicker callback error: " .. tostring(err)) end
+				autosave()
 			end
+
+			HexBox.FocusLost:Connect(function()
+				local hex = HexBox.Text:gsub("#", "")
+				if #hex == 6 and hex:match("^%x+$") then
+					local r = tonumber(hex:sub(1, 2), 16)
+					local g = tonumber(hex:sub(3, 4), 16)
+					local b = tonumber(hex:sub(5, 6), 16)
+					rgb = { r, g, b }
+					for i, fill in ipairs(fills) do
+						fill.Size = UDim2.new(rgb[i] / 255, 0, 1, 0)
+					end
+					updateColor(true)
+				else
+					HexBox.Text = string.format("#%02X%02X%02X", rgb[1], rgb[2], rgb[3])
+				end
+			end)
 
 			for i, ch in ipairs(channels) do
 				local row = create("Frame", { Parent = Popout, Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1 })
 				create("TextLabel", {
 					Parent = row, BackgroundTransparency = 1, Size = UDim2.fromOffset(14, 20),
-					Text = ch, Font = Theme.FontBold, TextSize = 11, TextColor3 = Theme.SubText, ZIndex = 31,
+					Text = ch, Font = Theme.FontBold, TextSize = 11, TextColor3 = Theme.SubText, ZIndex = 301,
 				})
 				local track = create("Frame", {
 					Parent = row, Position = UDim2.fromOffset(20, 6), Size = UDim2.new(1, -24, 0, 8),
-					BackgroundColor3 = Theme.Elevated, ZIndex = 31,
+					BackgroundColor3 = Theme.Elevated, ZIndex = 301,
 				}, { corner(4) })
 				local fill = create("Frame", {
 					Parent = track, Size = UDim2.new(rgb[i] / 255, 0, 1, 0),
-					BackgroundColor3 = Theme.Accent, ZIndex = 32,
+					BackgroundColor3 = Theme.Accent, ZIndex = 302,
 				}, { corner(4) })
+				fills[i] = fill
 
 				local dragging = false
 				local function setAlpha(a)
@@ -1231,14 +1708,14 @@ function WeroUI:CreateWindow(config)
 						setAlpha((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X)
 					end
 				end)
-				UserInputService.InputEnded:Connect(function(input)
+				table.insert(Window._connections, UserInputService.InputEnded:Connect(function(input)
 					if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-				end)
-				UserInputService.InputChanged:Connect(function(input)
+				end))
+				table.insert(Window._connections, UserInputService.InputChanged:Connect(function(input)
 					if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
 						setAlpha((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X)
 					end
-				end)
+				end))
 			end
 
 			Swatch.MouseButton1Click:Connect(function()
@@ -1251,9 +1728,13 @@ function WeroUI:CreateWindow(config)
 
 			function api:Set(c)
 				rgb = { c.R * 255, c.G * 255, c.B * 255 }
+				for i, fill in ipairs(fills) do
+					fill.Size = UDim2.new(rgb[i] / 255, 0, 1, 0)
+				end
 				updateColor()
 			end
 
+			registerFlag(opts, api)
 			return api
 		end
 
@@ -1287,8 +1768,11 @@ function WeroUI:CreateWindow(config)
 		end
 	end)
 
+	if ConfigSaving.Enabled then
+		task.defer(function() Window:LoadConfig() end)
+	end
+
 	return Window
 end
 
 return WeroUI
-
