@@ -600,7 +600,7 @@ function WeroUI:CreateWindow(config)
 		})
 	end
 
-	create("TextLabel", {
+	local TitleLabel = create("TextLabel", {
 		Parent = TopBar,
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(52, 8),
@@ -613,7 +613,7 @@ function WeroUI:CreateWindow(config)
 		ZIndex = 12,
 	})
 
-	create("TextLabel", {
+	local SubtitleLabel = create("TextLabel", {
 		Parent = TopBar,
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(52, 27),
@@ -985,6 +985,17 @@ function WeroUI:CreateWindow(config)
 
 	function Window:Toggle()
 		Window:SetOpen(not Window.Open)
+	end
+
+	function Window:SetTitle(name, subtitle)
+		if name ~= nil then
+			WindowName = name
+			TitleLabel.Text = name
+		end
+		if subtitle ~= nil then
+			Subtitle = subtitle
+			SubtitleLabel.Text = subtitle
+		end
 	end
 
 	function Window:SetAccentColor(color)
