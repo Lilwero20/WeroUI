@@ -33,6 +33,41 @@ local Theme = {
 	CardRadius      = 10,
 }
 
+-- Presets de color listos para usar con WeroUI:UsePreset("Nombre").
+-- Solo tocan los campos de color del tema; tipografía y radios quedan igual.
+local ThemePresets = {
+	Blue = {
+		Background = Color3.fromRGB(7, 11, 19), Elevated = Color3.fromRGB(17, 27, 42),
+		ElevatedLight = Color3.fromRGB(31, 47, 70), Stroke = Color3.fromRGB(56, 88, 128),
+		Accent = Color3.fromRGB(28, 152, 235), AccentLight = Color3.fromRGB(132, 208, 252),
+		AccentDark = Color3.fromRGB(14, 96, 158),
+	},
+	Purple = {
+		Background = Color3.fromRGB(12, 9, 20), Elevated = Color3.fromRGB(24, 19, 38),
+		ElevatedLight = Color3.fromRGB(41, 32, 63), Stroke = Color3.fromRGB(84, 68, 128),
+		Accent = Color3.fromRGB(147, 97, 235), AccentLight = Color3.fromRGB(200, 172, 252),
+		AccentDark = Color3.fromRGB(84, 55, 158),
+	},
+	Emerald = {
+		Background = Color3.fromRGB(6, 16, 13), Elevated = Color3.fromRGB(14, 32, 26),
+		ElevatedLight = Color3.fromRGB(24, 54, 44), Stroke = Color3.fromRGB(52, 110, 90),
+		Accent = Color3.fromRGB(46, 204, 138), AccentLight = Color3.fromRGB(150, 240, 200),
+		AccentDark = Color3.fromRGB(26, 122, 82),
+	},
+	Crimson = {
+		Background = Color3.fromRGB(18, 8, 10), Elevated = Color3.fromRGB(36, 17, 20),
+		ElevatedLight = Color3.fromRGB(58, 28, 33), Stroke = Color3.fromRGB(120, 55, 62),
+		Accent = Color3.fromRGB(235, 64, 78), AccentLight = Color3.fromRGB(252, 150, 160),
+		AccentDark = Color3.fromRGB(150, 35, 46),
+	},
+	Slate = {
+		Background = Color3.fromRGB(10, 10, 12), Elevated = Color3.fromRGB(22, 22, 26),
+		ElevatedLight = Color3.fromRGB(38, 38, 44), Stroke = Color3.fromRGB(80, 80, 90),
+		Accent = Color3.fromRGB(200, 200, 210), AccentLight = Color3.fromRGB(240, 240, 245),
+		AccentDark = Color3.fromRGB(130, 130, 140),
+	},
+}
+
 local function tween(obj, props, time, style, dir)
 	local t = TweenService:Create(
 		obj,
@@ -360,6 +395,16 @@ local WeroUI = {}
 WeroUI.__index = WeroUI
 WeroUI.Theme = Theme
 
+function WeroUI:UsePreset(name)
+	local preset = ThemePresets[name]
+	if not preset then
+		warn("[WeroUI] Preset '" .. tostring(name) .. "' no existe. Disponibles: Blue, Purple, Emerald, Crimson, Slate")
+		return false
+	end
+	self:SetTheme(preset)
+	return true
+end
+
 function WeroUI:SetTheme(patch)
 	for k, v in pairs(patch or {}) do
 		Theme[k] = v
@@ -681,12 +726,16 @@ function WeroUI:CreateWindow(config)
 		end, Window._connections)
 	end
 
+	-- El contenedor se ancla abajo-derecha y su alto se limita a un % de la
+	-- pantalla (nunca fijo en 400px), así nunca puede taparlo todo aunque
+	-- se acumulen varias notificaciones.
 	local NotifyHolder = create("Frame", {
 		Parent = ScreenGui,
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.new(1, -16, 1, -16),
-		Size = UDim2.fromOffset(300, 400),
+		Size = UDim2.new(0, 300, 0.85, 0),
 		BackgroundTransparency = 1,
+		ClipsDescendants = true,
 		ZIndex = 100,
 	}, {
 		listLayout(Enum.FillDirection.Vertical, 8, Enum.HorizontalAlignment.Right),
@@ -701,64 +750,180 @@ function WeroUI:CreateWindow(config)
 		Info = Theme.Info,
 	}
 
+	local MAX_NOTIFICATIONS = 5
+	local MAX_CONTENT_CHARS = 260
+	local activeNotifications = {} -- cola FIFO de tarjetas activas
+
+	local function removeNotification(entry, instant)
+		if entry.removed then return end
+		entry.removed = true
+		for i, e in ipairs(activeNotifications) do
+			if e == entry then table.remove(activeNotifications, i) break end
+		end
+		if entry.timerConn then entry.timerConn:Disconnect() end
+		if instant then
+			entry.card:Destroy()
+			return
+		end
+		local out = tween(entry.slide, {
+			Position = UDim2.fromOffset(entry.slide.AbsoluteSize.X + 24, 0),
+			BackgroundTransparency = 1,
+		}, 0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+		task.spawn(function()
+			out.Completed:Wait()
+			entry.card:Destroy()
+		end)
+	end
+
+	-- opts.Title, opts.Content, opts.Type ("Success"|"Error"|"Warning"|"Info"),
+	-- opts.Duration en segundos (0 o false = se queda hasta cerrarla con la X).
 	function Window:Notify(opts)
 		opts = opts or {}
-		local title = opts.Title or "Notificación"
-		local content = opts.Content or ""
-		local duration = opts.Duration or 4
+		local title = tostring(opts.Title or "Notificación")
+		local content = tostring(opts.Content or "")
+		if #content > MAX_CONTENT_CHARS then
+			content = content:sub(1, MAX_CONTENT_CHARS) .. "..."
+		end
+		local duration = opts.Duration
+		if duration == nil then duration = 4 end
+		local sticky = duration == false or duration <= 0
 		local accentColor = NOTIFY_COLORS[opts.Type] or Theme.AccentLight
 
+		-- Si ya hay demasiadas notificaciones abiertas, se cierra la más vieja
+		-- de inmediato para dejar espacio (evita que se acumulen sin límite).
+		while #activeNotifications >= MAX_NOTIFICATIONS do
+			removeNotification(activeNotifications[1], true)
+		end
+
+		-- Card: elemento administrado por el UIListLayout de NotifyHolder.
+		-- Nunca se le toca Position manualmente (eso es lo que rompía la
+		-- animación antes); solo su Size, que UIListLayout no controla.
 		local Card = create("Frame", {
 			Parent = NotifyHolder,
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			ZIndex = 100,
+		})
+
+		-- Slide: el visual real. Está un nivel adentro de Card, así que
+		-- animar su Position para el efecto de entrada/salida no compite
+		-- con el layout del contenedor.
+		local Slide = create("Frame", {
+			Parent = Card,
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundColor3 = Theme.Elevated,
-			BackgroundTransparency = 0,
+			BackgroundTransparency = 1,
 			ZIndex = 100,
 			ClipsDescendants = true,
+		}, { corner(10), stroke(Theme.Stroke, 1) })
+
+		-- Bloque de texto: SOLO título+contenido viven dentro del
+		-- UIListLayout interno. La barra de acento NO participa de ese
+		-- layout (antes sí, y su Size Y en Scale (1,0) generaba una
+		-- referencia circular con el AutomaticSize del padre, causando que
+		-- la tarjeta creciera sin control hasta tapar la pantalla).
+		local TextStack = create("Frame", {
+			Parent = Slide,
+			Position = UDim2.fromOffset(15, 0),
+			Size = UDim2.new(1, -15, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			ZIndex = 101,
 		}, {
-			corner(10),
-			stroke(Theme.Stroke, 1),
 			pad(10, 10, 12, 16),
 			listLayout(Enum.FillDirection.Vertical, 2),
 		})
-		create("Frame", {
-			Parent = Card,
-			Size = UDim2.new(0, 3, 1, 0),
+
+		local AccentStrip = create("Frame", {
+			Parent = Slide,
+			Size = UDim2.new(0, 3, 0, 0),
 			BackgroundColor3 = accentColor,
 			BorderSizePixel = 0,
 			ZIndex = 101,
 		})
+		-- Alto de la barra en offset (px), sincronizado al tamaño real ya
+		-- resuelto de Slide, para no depender de un Scale circular.
+		local function syncStripHeight()
+			AccentStrip.Size = UDim2.new(0, 3, 0, Slide.AbsoluteSize.Y)
+		end
+		table.insert(Window._connections, Slide:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncStripHeight))
+		task.defer(syncStripHeight)
+
 		create("TextLabel", {
-			Parent = Card, LayoutOrder = 1, BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 0, 18), Text = title,
+			Parent = TextStack, LayoutOrder = 1, BackgroundTransparency = 1,
+			Size = UDim2.new(1, -20, 0, 18), Text = title,
 			Font = Theme.FontBold, TextSize = 13, TextColor3 = accentColor,
-			TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 101,
+			TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+			ZIndex = 102,
 		})
 		create("TextLabel", {
-			Parent = Card, LayoutOrder = 2, BackgroundTransparency = 1,
+			Parent = TextStack, LayoutOrder = 2, BackgroundTransparency = 1,
 			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 			Text = content, Font = Theme.Font, TextSize = 12, TextColor3 = Theme.SubText,
-			TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, ZIndex = 101,
+			TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, ZIndex = 102,
 		})
 
-		Card.BackgroundTransparency = 1
-		local slideX = math.max(NotifyHolder.AbsoluteSize.X, 8)
-		Card.Position = UDim2.new(0, slideX + 8, 0, 0)
-		task.spawn(function()
-			tween(Card, {
-				Position = UDim2.fromOffset(0, 0),
-				BackgroundTransparency = 0,
-			}, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+		local entry = { card = Card, slide = Slide, removed = false }
 
-			task.wait(duration + 0.3)
-			local out = tween(Card, {
-				Position = UDim2.fromOffset(slideX + 8, 0),
-				BackgroundTransparency = 1,
-			}, 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-			out.Completed:Wait()
-			Card:Destroy()
-		end)
+		local CloseBtn = create("TextButton", {
+			Parent = Slide,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -6, 0, 6),
+			Size = UDim2.fromOffset(16, 16),
+			BackgroundTransparency = 1,
+			Text = "",
+			ZIndex = 103,
+		})
+		xIcon(CloseBtn, Theme.SubText, 9)
+		CloseBtn.MouseButton1Click:Connect(function() removeNotification(entry, false) end)
+
+		local ProgressBar
+		if not sticky then
+			local ProgressTrack = create("Frame", {
+				Parent = Slide,
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.new(0, 15, 1, 0),
+				Size = UDim2.new(1, -15, 0, 2),
+				BackgroundColor3 = Theme.ElevatedLight,
+				BorderSizePixel = 0,
+				ZIndex = 102,
+			})
+			ProgressBar = create("Frame", {
+				Parent = ProgressTrack,
+				Size = UDim2.new(1, 0, 1, 0),
+				BackgroundColor3 = accentColor,
+				BorderSizePixel = 0,
+				ZIndex = 103,
+			})
+		end
+
+		table.insert(activeNotifications, entry)
+
+		local slideX = math.max(NotifyHolder.AbsoluteSize.X, 8) + 24
+		Slide.Position = UDim2.fromOffset(slideX, 0)
+		tween(Slide, {
+			Position = UDim2.fromOffset(0, 0),
+			BackgroundTransparency = 0,
+		}, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+		if not sticky then
+			if ProgressBar then
+				tween(ProgressBar, { Size = UDim2.new(0, 0, 1, 0) }, duration, Enum.EasingStyle.Linear)
+			end
+			task.spawn(function()
+				task.wait(duration)
+				removeNotification(entry, false)
+			end)
+		end
+	end
+
+	-- Cierra todas las notificaciones visibles al instante.
+	function Window:ClearNotifications()
+		for _, entry in ipairs(table.clone(activeNotifications)) do
+			removeNotification(entry, true)
+		end
 	end
 
 	Main.Visible = true
@@ -814,6 +979,84 @@ function WeroUI:CreateWindow(config)
 			math.min(color.B + 0.4, 1)
 		)
 		Theme.AccentDark = Color3.new(color.R * 0.55, color.G * 0.55, color.B * 0.55)
+	end
+
+	-- Diálogo modal de confirmación.
+	-- opts = { Title, Content, ConfirmText, CancelText, ShowCancel }
+	-- Devuelve un booleano vía opts.Callback(confirmed) y también acepta
+	-- yield: `if Window:Prompt({...}) then ... end` (bloquea la coroutine
+	-- actual hasta que el usuario responde).
+	function Window:Prompt(opts)
+		opts = opts or {}
+		local co = coroutine.running()
+		local resultGiven = false
+
+		local Backdrop = create("TextButton", {
+			Parent = DropdownOverlay, Text = "", AutoButtonColor = false,
+			Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+			BackgroundTransparency = 0.5, ZIndex = 400,
+		})
+		local Box = create("Frame", {
+			Parent = DropdownOverlay,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(300, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundColor3 = Theme.Elevated,
+			ZIndex = 401,
+		}, { corner(12), stroke(Theme.Stroke, 1), pad(18, 18, 18, 18), listLayout(Enum.FillDirection.Vertical, 10) })
+		create("TextLabel", {
+			Parent = Box, LayoutOrder = 1, BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, 20), Text = opts.Title or "¿Confirmar?",
+			Font = Theme.FontBold, TextSize = 15, TextColor3 = Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 402,
+		})
+		if opts.Content and opts.Content ~= "" then
+			create("TextLabel", {
+				Parent = Box, LayoutOrder = 2, BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+				Text = opts.Content, Font = Theme.Font, TextSize = 12.5, TextColor3 = Theme.SubText,
+				TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 402,
+			})
+		end
+		local BtnRow = create("Frame", {
+			Parent = Box, LayoutOrder = 3, BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, 32), ZIndex = 402,
+		}, { listLayout(Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Right) })
+
+		local function finish(confirmed)
+			if resultGiven then return end
+			resultGiven = true
+			Backdrop:Destroy()
+			Box:Destroy()
+			if opts.Callback then task.spawn(opts.Callback, confirmed) end
+			if co then
+				local ok = coroutine.resume(co, confirmed)
+				if not ok then end
+			end
+		end
+		Backdrop.MouseButton1Click:Connect(function() finish(false) end)
+
+		if opts.ShowCancel ~= false then
+			local CancelBtn = create("TextButton", {
+				Parent = BtnRow, Size = UDim2.fromOffset(90, 32),
+				BackgroundColor3 = Theme.ElevatedLight, AutoButtonColor = false,
+				Text = opts.CancelText or "Cancelar", Font = Theme.FontSemibold,
+				TextSize = 13, TextColor3 = Theme.SubText, ZIndex = 403,
+			}, { corner(8) })
+			CancelBtn.MouseButton1Click:Connect(function() finish(false) end)
+		end
+		local ConfirmBtn = create("TextButton", {
+			Parent = BtnRow, Size = UDim2.fromOffset(90, 32),
+			BackgroundColor3 = Theme.Accent, AutoButtonColor = false,
+			Text = opts.ConfirmText or "Aceptar", Font = Theme.FontSemibold,
+			TextSize = 13, TextColor3 = Theme.Text, ZIndex = 403,
+		}, { corner(8) })
+		ConfirmBtn.MouseButton1Click:Connect(function() finish(true) end)
+
+		if co and coroutine.status(co) == "running" then
+			return coroutine.yield()
+		end
 	end
 
 	function Window:SaveConfig()
@@ -1059,6 +1302,39 @@ function WeroUI:CreateWindow(config)
 				content.Text = txt or ""
 			end
 			function api:Set(txt) api:SetDescription(txt) end
+			return api
+		end
+
+		-- opts = { Image, Title, Height (default 160), ScaleType }
+		function Tab:CreateImage(opts)
+			opts = opts or {}
+			local height = opts.Height or 160
+			local card = create("Frame", {
+				Parent = Page,
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundColor3 = Theme.Elevated,
+				ZIndex = 12,
+			}, { corner(Theme.CardRadius), stroke(Theme.Stroke, 1), pad(10, 10, 10, 10), listLayout(Enum.FillDirection.Vertical, 6) })
+
+			if opts.Title and opts.Title ~= "" then
+				create("TextLabel", {
+					Parent = card, LayoutOrder = 1, BackgroundTransparency = 1,
+					Size = UDim2.new(1, 0, 0, 18), Text = opts.Title,
+					Font = Theme.FontBold, TextSize = 13, TextColor3 = Theme.Text,
+					TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13,
+				})
+			end
+			local ImageFrame = create("ImageLabel", {
+				Parent = card, LayoutOrder = 2, BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, height),
+				Image = resolveIcon(opts.Image) or "",
+				ScaleType = opts.ScaleType or Enum.ScaleType.Fit,
+				ZIndex = 13,
+			}, { corner(6) })
+
+			local api = {}
+			function api:SetImage(img) ImageFrame.Image = resolveIcon(img) or "" end
 			return api
 		end
 
