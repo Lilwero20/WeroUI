@@ -33,6 +33,8 @@ local Theme = {
 	CardRadius      = 10,
 }
 
+-- Presets de color listos para usar con WeroUI:UsePreset("Nombre").
+-- Solo tocan los campos de color del tema; tipografía y radios quedan igual.
 local ThemePresets = {
 	Blue = {
 		Background = Color3.fromRGB(7, 11, 19), Elevated = Color3.fromRGB(17, 27, 42),
@@ -1994,12 +1996,27 @@ function WeroUI:CreateWindow(config)
 				listening = true
 				KeyBtn.Text = "..."
 				tween(KeyBtn, { BackgroundColor3 = Theme.Accent }, 0.15)
+				-- Si algún TextBox del menú (p. ej. un input de búsqueda)
+				-- se quedó con el foco, Roblox marca CUALQUIER tecla como
+				-- "processed" y nunca llegaría a este listener. Le sacamos
+				-- el foco a mano para asegurarnos de poder capturar la tecla.
+				local focused = UserInputService:GetFocusedTextBox()
+				if focused then focused:ReleaseFocus() end
 			end)
 
 			table.insert(Window._connections, UserInputService.InputBegan:Connect(function(input, processed)
-				if processed then return end
 				if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 				if listening then
+					-- A propósito NO chequeamos "processed" acá: el usuario
+					-- ya hizo click en el botón para pedir capturar una
+					-- tecla, así que debe funcionar sin importar qué otro
+					-- elemento tenga el foco. Escape cancela sin asignar.
+					if input.KeyCode == Enum.KeyCode.Escape then
+						listening = false
+						KeyBtn.Text = currentKey.Name
+						tween(KeyBtn, { BackgroundColor3 = Theme.ElevatedLight }, 0.15)
+						return
+					end
 					currentKey = input.KeyCode
 					api.Value = currentKey.Name
 					KeyBtn.Text = currentKey.Name
@@ -2008,7 +2025,7 @@ function WeroUI:CreateWindow(config)
 					local ok, err = pcall(opts.Callback or function() end, currentKey)
 					if not ok then warn("[WeroUI] Keybind callback error: " .. tostring(err)) end
 					autosave()
-				elseif input.KeyCode == currentKey then
+				elseif not processed and input.KeyCode == currentKey then
 					local ok, err = pcall(opts.Callback or function() end, currentKey)
 					if not ok then warn("[WeroUI] Keybind press callback error: " .. tostring(err)) end
 				end
