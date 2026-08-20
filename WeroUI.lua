@@ -958,12 +958,22 @@ function WeroUI:CreateWindow(config)
 		TopBarMask.Visible = not state
 		MinBtnMinus.Visible = not state
 		MinBtnPlus.Visible = state
+		-- No basta con encoger Main y confiar en ClipsDescendants: durante el
+		-- tween, el recorte no siempre acompaña el cambio de tamaño a tiempo
+		-- (sobre todo con el ScrollingFrame de tabs, que tiene
+		-- AutomaticCanvasSize), y botones/íconos del contenido quedan
+		-- "flotando" visibles fuera de la barra minimizada. Por eso además
+		-- ocultamos Sidebar/ContentArea explícitamente.
 		if state then
+			Sidebar.Visible = false
+			ContentArea.Visible = false
 			Main.Size = WindowSize
 			tween(Main, { Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, MINIMIZED_HEIGHT) }, 0.2)
 		else
 			Main.Size = UDim2.new(WindowSize.X.Scale, WindowSize.X.Offset, 0, MINIMIZED_HEIGHT)
 			tween(Main, { Size = WindowSize }, 0.2)
+			Sidebar.Visible = true
+			ContentArea.Visible = true
 		end
 	end
 
@@ -1200,37 +1210,48 @@ function WeroUI:CreateWindow(config)
 		end
 		TabButton.MouseButton1Click:Connect(selectTab)
 
-		local function baseCard(height)
+		-- autoGrow = true: la card crece en alto si su contenido (p. ej. una
+		-- descripción larga en varias líneas) no entra en "height". Se usa
+		-- en Botón/Toggle, que pueden tener Description opcional.
+		local function baseCard(height, autoGrow)
 			return create("Frame", {
 				Parent = Page,
 				Size = UDim2.new(1, 0, 0, height or 40),
-				AutomaticSize = height and Enum.AutomaticSize.None or Enum.AutomaticSize.Y,
+				AutomaticSize = autoGrow and Enum.AutomaticSize.Y or Enum.AutomaticSize.None,
 				BackgroundColor3 = Theme.Elevated,
 				ZIndex = 12,
 			}, { corner(Theme.CardRadius), stroke(Theme.Stroke, 1), pad(10, 10, 12, 12) })
 		end
 
+		-- Bloque de nombre + descripción opcional. "holder" mide su alto
+		-- según su propio contenido (AutomaticSize) y se centra verticalmente
+		-- dentro de la card con AnchorPoint, así que si la card crece (ver
+		-- baseCard autoGrow) el bloque de texto crece con ella en vez de
+		-- quedar recortado a un % fijo de una altura fija.
 		local function nameSub(parent, nameText, descText)
 			local holder = create("Frame", {
 				Parent = parent,
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 0, 0.5, 0),
+				Size = UDim2.new(1, -50, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
 				BackgroundTransparency = 1,
-				Size = UDim2.new(1, -50, 1, 0),
-			})
+				ZIndex = 13,
+			}, { listLayout(Enum.FillDirection.Vertical, 2) })
 			create("TextLabel", {
-				Parent = holder, BackgroundTransparency = 1,
-				Size = UDim2.new(1, 0, descText and 0.55 or 1, 0),
+				Parent = holder, LayoutOrder = 1, BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 18),
 				Text = nameText, Font = Theme.FontSemibold, TextSize = 13,
 				TextColor3 = Theme.Text, TextXAlignment = Enum.TextXAlignment.Left,
-				TextYAlignment = Enum.TextYAlignment.Center, ZIndex = 13,
+				TextYAlignment = Enum.TextYAlignment.Center, ZIndex = 14,
 			})
 			if descText and descText ~= "" then
 				create("TextLabel", {
-					Parent = holder, BackgroundTransparency = 1,
-					Position = UDim2.new(0, 0, 0.55, 0),
-					Size = UDim2.new(1, 0, 0.45, 0),
+					Parent = holder, LayoutOrder = 2, BackgroundTransparency = 1,
+					Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 					Text = descText, Font = Theme.Font, TextSize = 11,
 					TextColor3 = Theme.SubText, TextXAlignment = Enum.TextXAlignment.Left,
-					TextYAlignment = Enum.TextYAlignment.Center, ZIndex = 13,
+					TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true, ZIndex = 14,
 				})
 			end
 			return holder
@@ -1350,7 +1371,7 @@ function WeroUI:CreateWindow(config)
 
 		function Tab:CreateButton(opts)
 			opts = opts or {}
-			local card = baseCard(opts.Description and 50 or 40)
+			local card = baseCard(opts.Description and 50 or 40, true)
 			nameSub(card, opts.Name or "Botón", opts.Description)
 
 			local Btn = create("TextButton", {
@@ -1379,7 +1400,7 @@ function WeroUI:CreateWindow(config)
 		function Tab:CreateToggle(opts)
 			opts = opts or {}
 			local state = opts.CurrentValue or false
-			local card = baseCard(opts.Description and 50 or 40)
+			local card = baseCard(opts.Description and 50 or 40, true)
 			nameSub(card, opts.Name or "Toggle", opts.Description)
 			attachTooltip(card, opts.Tooltip)
 
