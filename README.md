@@ -6,14 +6,18 @@ Está diseñada para ser simple, ligera y bonita: creas una ventana, agregas pes
 
 ## Características
 
-- Ventana arrastrable con barra de título (logo, título, subtítulo).
-- Botón de **minimizar** ("–") que colapsa la ventana hacia arriba dejando solo la barra de título.
-- Botón de **cerrar** ("×") y tecla global para abrir/cerrar (por defecto `LeftControl`).
-- Icono flotante para abrir/cerrar el menú desde la pantalla.
+- Ventana arrastrable con barra de título (logo, título, subtítulo), con un algoritmo de arrastre corregido que no salta al iniciar el drag.
+- Ventana **redimensionable** desde la esquina inferior derecha, con tamaño mínimo/máximo configurable.
+- Botón de **minimizar** que colapsa la ventana hacia arriba dejando solo la barra de título, y botón de **cerrar**, ambos con iconos vectoriales (no dependen de la fuente, así que nunca se ven como un cuadro/rectángulo raro).
+- Tecla global para abrir/cerrar (por defecto `LeftControl`) e icono flotante para abrir/cerrar el menú desde la pantalla.
 - Icono personalizado por `assetid` (se muestra con sus colores originales).
-- Notificaciones animadas (se deslizan desde la derecha y desaparecen solas).
-- Dropdowns que **scrollean** si tienen más de 5 opciones.
-- ColorPicker con deslizadores RGB.
+- Notificaciones animadas con **tipo** (`Success`, `Error`, `Warning`, `Info`), cada una con su color y barra lateral.
+- Dropdowns que **scrollean** si tienen más de 5 opciones y que opcionalmente incluyen un **buscador** (`Searchable`).
+- ColorPicker con deslizadores RGB **y** campo de texto HEX editable.
+- Barra de progreso (`Tab:CreateProgressBar`).
+- **Tooltips** opcionales en casi todos los elementos (`Tooltip = "texto"`).
+- **Guardado de configuración** en disco (con `Flag` por elemento) para recordar los valores entre sesiones.
+- Personalización de tema: color de acento en caliente (`Window:SetAccentColor`) y `WeroUI:SetTheme(patch)` para ajustar la paleta completa antes de crear la ventana.
 - API programática: casi todos los elementos devuelven un objeto con métodos `:Set()`, `:Refresh()`, etc.
 
 ---
@@ -56,13 +60,17 @@ Tab:CreateButton({
 
 Crea y devuelve la ventana principal. Todas las opciones son opcionales.
 
-| Opción           | Tipo                    | Default                        | Descripción                                              |
-| ---------------- | ----------------------- | ------------------------------ | -------------------------------------------------------- |
-| `Name`           | `string`                | `"Wero UI"`                    | Nombre que se muestra en la barra de título.             |
-| `Subtitle`       | `string`                | `""`                           | Subtítulo pequeño debajo del nombre.                     |
-| `Icon`           | `number` / `string` / `nil` | `nil` (letra "W")            | Assetid del logo: `123456789` o `"rbxassetid://..."`. Si no se pone, se usa la letra "W". |
-| `ToggleKeybind`  | `Enum.KeyCode`          | `Enum.KeyCode.LeftControl`     | Tecla que abre/cierra la ventana.                        |
-| `Size`           | `UDim2`                 | `UDim2.fromOffset(560, 380)`   | Tamaño de la ventana.                                    |
+| Opción                | Tipo                    | Default                        | Descripción                                              |
+| --------------------- | ----------------------- | ------------------------------ | -------------------------------------------------------- |
+| `Name`                | `string`                | `"Wero UI"`                    | Nombre que se muestra en la barra de título.             |
+| `Subtitle`            | `string`                | `""`                           | Subtítulo pequeño debajo del nombre.                     |
+| `Icon`                | `number` / `string` / `nil` | `nil` (letra "W")            | Assetid del logo: `123456789` o `"rbxassetid://..."`. Si no se pone, se usa la letra "W". |
+| `ToggleKeybind`       | `Enum.KeyCode`          | `Enum.KeyCode.LeftControl`     | Tecla que abre/cierra la ventana.                        |
+| `Size`                | `UDim2`                 | `UDim2.fromOffset(560, 380)`   | Tamaño inicial de la ventana.                             |
+| `Resizable`           | `boolean`               | `true`                         | Si `true`, aparece un grip en la esquina inferior derecha para redimensionar. |
+| `MinSize`             | `Vector2`               | `Vector2.new(420, 280)`        | Tamaño mínimo al redimensionar.                           |
+| `MaxSize`             | `Vector2`               | `Vector2.new(900, 700)`        | Tamaño máximo al redimensionar.                           |
+| `ConfigurationSaving` | `table`                 | `{}` (desactivado)             | Ver sección **Guardado de configuración** más abajo.      |
 
 ```lua
 local Window = WeroUI:CreateWindow({
@@ -71,6 +79,13 @@ local Window = WeroUI:CreateWindow({
     Icon = 98755624629571,
     ToggleKeybind = Enum.KeyCode.LeftControl,
     Size = UDim2.fromOffset(560, 380),
+    Resizable = true,
+    MinSize = Vector2.new(420, 280),
+    MaxSize = Vector2.new(900, 700),
+    ConfigurationSaving = {
+        Enabled = true,
+        FileName = "MiConfig",
+    },
 })
 ```
 
@@ -90,7 +105,7 @@ local Tab2 = Window:CreateTab("Ajustes", 123456789) -- con icono
 
 ---
 
-## `Window:Notify({ Title, Content, Duration })`
+## `Window:Notify({ Title, Content, Duration, Type })`
 
 Muestra una notificación animada en la esquina inferior derecha. Las notificaciones se acumulan hacia arriba y se deslizan desde el borde derecho.
 
@@ -99,12 +114,14 @@ Muestra una notificación animada en la esquina inferior derecha. Las notificaci
 | `Title`    | `string` | `"Notificación"` | Título en negrita.                 |
 | `Content`  | `string` | `""`             | Texto de la notificación.          |
 | `Duration` | `number` | `4`              | Segundos que permanece visible.    |
+| `Type`     | `string` | `nil` (azul)     | `"Success"`, `"Error"`, `"Warning"` o `"Info"`. Colorea el título y la barra lateral. |
 
 ```lua
 Window:Notify({
     Title = "Éxito",
     Content = "Configuración guardada correctamente.",
     Duration = 3,
+    Type = "Success",
 })
 ```
 
@@ -143,6 +160,27 @@ Cambia la tecla global de abrir/cerrar.
 ```lua
 Window:SetToggleKeybind(Enum.KeyCode.RightControl)
 ```
+
+## `Window:SetAccentColor(color)`
+
+Cambia el color de acento de la ventana (usado en el resaltado del borde y el degradado del icono flotante).
+
+```lua
+Window:SetAccentColor(Color3.fromRGB(200, 60, 220))
+```
+
+Para personalizar la paleta completa (fondo, texto, radios de esquina, etc.) antes de crear la ventana, usa `WeroUI:SetTheme(patch)` — ver la sección **Tema** más abajo.
+
+## `Window:SaveConfig()` / `Window:LoadConfig()`
+
+Guarda o carga en disco los valores de todos los elementos que tengan un `Flag` asignado (ver sección **Guardado de configuración**). Se usan automáticamente si activaste `ConfigurationSaving.Enabled = true` en `CreateWindow`, pero también puedes llamarlos manualmente.
+
+```lua
+Window:SaveConfig()
+Window:LoadConfig()
+```
+
+> Ambas funciones dependen de `writefile`/`readfile`/`isfile` del ejecutor. Si no existen, simplemente devuelven `false` sin generar error.
 
 ## `Window:Destroy()`
 
@@ -200,7 +238,9 @@ Tab:CreateDivider()
 
 ---
 
-## `Tab:CreateButton({ Name, Description, Callback })`
+> **Tip:** casi todos los elementos de esta sección aceptan una opción extra `Tooltip = "texto"` que muestra un globo de ayuda al pasar el mouse por encima, y una opción `Flag = "nombre"` que los registra para el **guardado de configuración** (ver más abajo).
+
+## `Tab:CreateButton({ Name, Description, Callback, Tooltip })`
 
 Botón con color del tema. Devuelve `{ Instance = tarjeta }`.
 
@@ -209,11 +249,13 @@ Botón con color del tema. Devuelve `{ Instance = tarjeta }`.
 | `Name`        | `string`   | Nombre del botón.                               |
 | `Description` | `string` *opcional* | Texto pequeño debajo del nombre. |
 | `Callback`    | `function` | Se ejecuta al hacer clic (sin argumentos).      |
+| `Tooltip`     | `string` *opcional* | Texto de ayuda al pasar el mouse.       |
 
 ```lua
 local Btn = Tab:CreateButton({
     Name = "Activar",
     Description = "Ejecuta algo al pulsar.",
+    Tooltip = "Esto ejecuta la función principal.",
     Callback = function()
         print("Botón pulsado!")
     end,
@@ -225,9 +267,9 @@ print(Btn.Instance)
 
 ---
 
-## `Tab:CreateToggle({ Name, Description, CurrentValue, Callback })`
+## `Tab:CreateToggle({ Name, Description, CurrentValue, Callback, Tooltip, Flag })`
 
-Interruptor de encendido/apagado. Devuelve un objeto con `:Set(valor)`.
+Interruptor de encendido/apagado. Devuelve un objeto con `:Set(valor)` y `.Value`.
 
 | Opción        | Tipo       | Default | Descripción                               |
 | ------------- | ---------- | ------- | ----------------------------------------- |
@@ -235,12 +277,15 @@ Interruptor de encendido/apagado. Devuelve un objeto con `:Set(valor)`.
 | `Description` | `string` *opcional* | — | Texto pequeño debajo.         |
 | `CurrentValue`| `boolean`  | `false` | Estado inicial. Si es `true`, el callback se dispara una vez al crear. |
 | `Callback`    | `function` | —       | Recibe el nuevo estado `(boolean)`.        |
+| `Tooltip`     | `string` *opcional* | — | Texto de ayuda al pasar el mouse. |
+| `Flag`        | `string` *opcional* | — | Nombre único para guardar/cargar este valor con `Window:SaveConfig()`. |
 
 ```lua
 local Toggle = Tab:CreateToggle({
     Name = "Auto-jump",
     Description = "Salta automáticamente.",
     CurrentValue = false,
+    Flag = "AutoJump",
     Callback = function(value)
         print("Toggle:", value)
     end,
@@ -253,7 +298,7 @@ Toggle:Set(false)
 
 ---
 
-## `Tab:CreateSlider({ Name, Range, Increment, CurrentValue, Callback })`
+## `Tab:CreateSlider({ Name, Range, Increment, CurrentValue, Suffix, Callback, Tooltip, Flag })`
 
 Barra deslizante con valor numérico. Devuelve un objeto con `:Set(valor)` y `.Value`.
 
@@ -263,7 +308,10 @@ Barra deslizante con valor numérico. Devuelve un objeto con `:Set(valor)` y `.V
 | `Range`        | `{number, number}` | `{0, 100}` | Valor mínimo y máximo. |
 | `Increment`    | `number`     | `1`     | Paso entre valores.                      |
 | `CurrentValue` | `number`     | mínimo  | Valor inicial.                           |
+| `Suffix`       | `string` *opcional* | — | Texto que se agrega después del valor, p.ej. `"%"` o `" studs"`. |
 | `Callback`     | `function`   | —       | Recibe el valor actual `(number)`.       |
+| `Tooltip`      | `string` *opcional* | — | Texto de ayuda al pasar el mouse. |
+| `Flag`         | `string` *opcional* | — | Nombre único para guardar/cargar este valor. |
 
 ```lua
 local Slider = Tab:CreateSlider({
@@ -271,6 +319,8 @@ local Slider = Tab:CreateSlider({
     Range = {0, 200},
     Increment = 5,
     CurrentValue = 100,
+    Suffix = " studs/s",
+    Flag = "Velocidad",
     Callback = function(value)
         print("Velocidad:", value)
     end,
@@ -283,9 +333,31 @@ print(Slider.Value)
 
 ---
 
-## `Tab:CreateDropdown({ Name, Options, CurrentOption, MultipleOptions, Callback })`
+## `Tab:CreateProgressBar({ Name, Range, CurrentValue })`
 
-Menú desplegable de selección. Si tiene **más de 5 opciones**, aparece una barra de scroll. Devuelve un objeto con `:Refresh(nuevasOpciones)` y `.Value`.
+Barra de progreso de solo lectura (no interactiva). Devuelve un objeto con `:Set(valor)` y `.Value`; el texto muestra el porcentaje.
+
+| Opción         | Tipo         | Default | Descripción                              |
+| -------------- | ------------ | ------- | ---------------------------------------- |
+| `Name`         | `string`     | `"Progreso"` | Nombre.                              |
+| `Range`        | `{number, number}` | `{0, 100}` | Valor mínimo y máximo. |
+| `CurrentValue` | `number`     | mínimo  | Valor inicial.                           |
+
+```lua
+local Progreso = Tab:CreateProgressBar({
+    Name = "Carga",
+    Range = {0, 100},
+    CurrentValue = 0,
+})
+
+Progreso:Set(65)
+```
+
+---
+
+## `Tab:CreateDropdown({ Name, Options, CurrentOption, MultipleOptions, Searchable, Callback, Tooltip, Flag })`
+
+Menú desplegable de selección. Si tiene **más de 5 opciones**, aparece una barra de scroll. Devuelve un objeto con `:Refresh(nuevasOpciones)`, `:Set(opcion)` y `.Value`.
 
 | Opción            | Tipo                  | Default | Descripción                                      |
 | ----------------- | --------------------- | ------- | ------------------------------------------------ |
@@ -293,7 +365,10 @@ Menú desplegable de selección. Si tiene **más de 5 opciones**, aparece una ba
 | `Options`         | `{string, ...}`       | `{}`    | Lista de opciones disponibles.                   |
 | `CurrentOption`   | `string` o `{string,...}` | primera opción | Opción seleccionada al inicio. Para modo múltiple, una tabla. |
 | `MultipleOptions` | `boolean`             | `false` | Si `true`, permite seleccionar varias.           |
+| `Searchable`      | `boolean`             | `false` | Si `true`, agrega un campo de búsqueda arriba de la lista. |
 | `Callback`        | `function`            | —       | Recibe el valor seleccionado.                    |
+| `Tooltip`         | `string` *opcional*   | —       | Texto de ayuda al pasar el mouse.                |
+| `Flag`            | `string` *opcional*   | —       | Nombre único para guardar/cargar este valor.     |
 
 Modo simple: el callback recibe un `string`.
 
@@ -302,6 +377,8 @@ local Dropdown = Tab:CreateDropdown({
     Name = "Modo de juego",
     Options = {"Survival", "Creative", "Hardcore"},
     CurrentOption = "Survival",
+    Searchable = true,
+    Flag = "ModoJuego",
     Callback = function(value)
         print("Modo:", value)
     end,
@@ -309,6 +386,8 @@ local Dropdown = Tab:CreateDropdown({
 
 -- Actualizar opciones dinámicamente:
 Dropdown:Refresh({"Nuevo A", "Nuevo B", "Nuevo C"})
+-- Seleccionar una opción por código:
+Dropdown:Set("Nuevo B")
 ```
 
 Modo múltiple: el callback recibe una **tabla** `{ [opcion] = true/false }`.
